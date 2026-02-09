@@ -20,6 +20,6 @@ void setup() {
 }
 
 void loop() {
-  rotation(Direction::FORWARD, 120);
+  rotation(Direction::REVERSE, 120);
 }
 
