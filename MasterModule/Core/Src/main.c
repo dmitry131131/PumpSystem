@@ -69,18 +69,13 @@ static void MX_CAN_Init(void);
 
 void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *can) {
   if (HAL_CAN_GetRxMessage(&hcan, CAN_RX_FIFO0, &RxHeader, RxData) == HAL_OK) {
-    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
-    HAL_Delay(500);
-    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+    HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
   }
 }
 
 void HAL_CAN_ErrorCallback(CAN_HandleTypeDef *can) {
   CAN_Error = HAL_CAN_GetError(&hcan);
-
-  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
-  HAL_Delay(1500);
-  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+  // HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
 }
 
 /* USER CODE END 0 */
@@ -117,11 +112,6 @@ int main(void)
   MX_CAN_Init();
   /* USER CODE BEGIN 2 */
 
-  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
-  HAL_Delay(15000);
-  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
-
-
   CAN_FilterTypeDef sFilterConfig;
   sFilterConfig.FilterBank = 0;
   sFilterConfig.FilterMode = CAN_FILTERMODE_IDMASK;
@@ -156,15 +146,21 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-
-
+  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
   while (1)
   {
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    // HAL_Error = HAL_CAN_AddTxMessage(&hcan, &TxHeader, TxData, &TxMailbox);
-    // HAL_Delay(2000);
+    HAL_Error = HAL_CAN_AddTxMessage(&hcan, &TxHeader, TxData, &TxMailbox);
+    HAL_Delay(2000);
+      // HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+      // HAL_Delay(2000);
+      // HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+      // HAL_Delay(500);
+
+      // HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
+      // HAL_Delay(500);
   }
   /* USER CODE END 3 */
 }
@@ -224,7 +220,7 @@ static void MX_CAN_Init(void)
   /* USER CODE END CAN_Init 1 */
   hcan.Instance = CAN1;
   hcan.Init.Prescaler = 40;
-  hcan.Init.Mode = CAN_MODE_NORMAL;
+  hcan.Init.Mode = CAN_MODE_SILENT_LOOPBACK;
   hcan.Init.SyncJumpWidth = CAN_SJW_1TQ;
   hcan.Init.TimeSeg1 = CAN_BS1_13TQ;
   hcan.Init.TimeSeg2 = CAN_BS2_2TQ;
