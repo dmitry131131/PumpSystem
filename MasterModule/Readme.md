@@ -1,7 +1,6 @@
 # Master Module
 
 Pipeline: 
-
 CubeMX configuration -> Coding -> Arm-Gcc compilation -> openOCD upload
 
 # Build
