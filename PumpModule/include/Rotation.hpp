@@ -7,8 +7,8 @@ enum Direction : unsigned char {
   FORWARD = 1
 };
 
-unsigned get_microstepping_coeff();
-void set_microstepping_coeff(unsigned coeff);
+unsigned get_microsteping_coeff();
+void set_microsteping_coeff(unsigned coeff);
 
 void rotation(Direction direction, unsigned RPM, double time);
 void rotation(Direction direction, unsigned RPM);

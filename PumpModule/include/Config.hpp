@@ -14,3 +14,9 @@ const unsigned STEPS_PER_REV = 200;    // 200 steps per rotation (default NEMA17
 // MCP2515 pinout
 const unsigned CS_PIN = 10; //  CS pin
 const unsigned INT_PIN = 9; //  Interrupt pin
+
+// CAN IDs
+const uint8_t MASTER_ID = 100;
+const uint8_t MY_ID = 101;
+const unsigned MAX_REGISTRATION_RETRIES = 5;
+unsigned long RESPONSE_TIMEOUT = 2000;
