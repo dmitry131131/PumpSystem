@@ -45,7 +45,6 @@ CAN_HandleTypeDef hcan;
 
 /* USER CODE BEGIN PV */
 
-CAN_TxHeaderTypeDef TxHeader;
 CAN_RxHeaderTypeDef RxHeader;
 
 uint8_t TxData[8] = {};
@@ -68,9 +67,29 @@ static void MX_CAN_Init(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
+CAN_TxHeaderTypeDef CreateRegistrationResponseHeader(uint32_t DeviceId) {
+  CAN_TxHeaderTypeDef TxHeader;
+
+  TxHeader.StdId = DeviceId;
+  TxHeader.ExtId = 0;
+  TxHeader.RTR = CAN_RTR_DATA;
+  TxHeader.IDE = CAN_ID_STD;
+  TxHeader.DLC = 1;
+  TxHeader.TransmitGlobalTime = 0;
+
+  return TxHeader;
+}
+
 void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *can) {
   if (HAL_CAN_GetRxMessage(&hcan, CAN_RX_FIFO0, &RxHeader, RxData) == HAL_OK) {
     HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
+
+    // Create registration response
+    CAN_TxHeaderTypeDef TxHeader = CreateRegistrationResponseHeader(101);
+    // Fill the CAN TxData
+    TxData[0] = 0x02;
+
+    HAL_Error = HAL_CAN_AddTxMessage(&hcan, &TxHeader, TxData, &TxMailbox);
   }
 }
 
@@ -78,6 +97,9 @@ void HAL_CAN_ErrorCallback(CAN_HandleTypeDef *can) {
   CAN_Error = HAL_CAN_GetError(&hcan);
   // HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
 }
+
+
+
 
 /* USER CODE END 0 */
 
@@ -129,18 +151,6 @@ int main(void)
     Error_Handler();
   }
 
-  TxHeader.StdId = 0x0123;
-  TxHeader.ExtId = 0;
-  TxHeader.RTR = CAN_RTR_DATA;
-  TxHeader.IDE = CAN_ID_STD;
-  TxHeader.DLC = 8;
-  TxHeader.TransmitGlobalTime = 0;
-  
-  // Fill the CAN TxData
-  for (uint8_t i = 0; i < sizeof(TxData)/sizeof(TxData[0]); ++i) {
-    TxData[i] = i;
-  }
-
   HAL_Error = HAL_CAN_Start(&hcan);
   HAL_Error = HAL_CAN_ActivateNotification(&hcan, CAN_IT_RX_FIFO0_MSG_PENDING | CAN_IT_ERROR | CAN_IT_BUSOFF | CAN_IT_LAST_ERROR_CODE);
 
@@ -154,8 +164,8 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    HAL_Error = HAL_CAN_AddTxMessage(&hcan, &TxHeader, TxData, &TxMailbox);
-    HAL_Delay(500);
+    // HAL_Error = HAL_CAN_AddTxMessage(&hcan, &TxHeader, TxData, &TxMailbox);
+    // HAL_Delay(100);
   }
   /* USER CODE END 3 */
 }
@@ -223,7 +233,7 @@ static void MX_CAN_Init(void)
   /* USER CODE END CAN_Init 1 */
   hcan.Instance = CAN1;
   hcan.Init.Prescaler = 45;
-  hcan.Init.Mode = CAN_MODE_LOOPBACK;
+  hcan.Init.Mode = CAN_MODE_NORMAL;
   hcan.Init.SyncJumpWidth = CAN_SJW_1TQ;
   hcan.Init.TimeSeg1 = CAN_BS1_13TQ;
   hcan.Init.TimeSeg2 = CAN_BS2_2TQ;
