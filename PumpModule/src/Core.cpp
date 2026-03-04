@@ -3,14 +3,10 @@
 #include "Rotation.hpp"
 #include "BusConnection.hpp"
 
-struct can_frame canMsg;
 MCP2515 mcp2515(CS_PIN);
 bool registeredInCAN = false; 
 
 void setup() {
-  // Delay for all device initialization
-  delay(1000);
-
   // Set pins as output
   pinMode(DIR_PIN,    OUTPUT);
   pinMode(STEP_PIN,   OUTPUT);
@@ -24,6 +20,9 @@ void setup() {
   // Set microsteping
   set_microsteping_coeff(16);
 
+  // Delay for all device initialization
+  delay(2000);
+
   // CAN configuration
   if(CANInitialization(mcp2515) == MCP2515::ERROR_OK) {
     registeredInCAN = true;
@@ -31,7 +30,6 @@ void setup() {
 }
 
 void loop() {
-
   if (!registeredInCAN) {
     return;
   }

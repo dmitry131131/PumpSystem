@@ -19,4 +19,4 @@ const unsigned INT_PIN = 9; //  Interrupt pin
 const uint8_t MASTER_ID = 100;
 const uint8_t MY_ID = 101;
 const unsigned MAX_REGISTRATION_RETRIES = 5;
-unsigned long RESPONSE_TIMEOUT = 2000;
+const unsigned long RESPONSE_TIMEOUT = 1000;

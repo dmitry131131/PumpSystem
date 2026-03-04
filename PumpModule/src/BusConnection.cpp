@@ -2,6 +2,8 @@
 #include "Config.hpp"
 #include "BusConnection.hpp"
 
+#include "Rotation.hpp"
+
 namespace {
     can_frame createRegistrationMsg(uint8_t ID = MY_ID) {
         can_frame canMsg = {};
@@ -28,20 +30,19 @@ namespace {
 
 MCP2515::ERROR CANInitialization(MCP2515& mcp2515) {
     #define CHECK_ERROR_CALL(__CODE__) do {     \
-        MCP2515::ERROR error_ = __CODE__;       \
-        if (error_ != MCP2515::ERROR_OK) {      \
-            return error_;                      \
+        if (__CODE__) {                         \
+            return MCP2515::ERROR::ERROR_FAIL;  \
         }                                       \
     } while(0)
     
     CHECK_ERROR_CALL(mcp2515.reset());
     CHECK_ERROR_CALL(mcp2515.setBitrate(CAN_50KBPS, MCP_8MHZ));
-    CHECK_ERROR_CALL(mcp2515.setNormalMode());
-
     // Set mask 0x7FF = 11111111111 (Check all IDs)
     CHECK_ERROR_CALL(mcp2515.setFilterMask(MCP2515::MASK0, false, 0x7FF));
     // Filter RXF0 will pass packets with ID = MY_ID
     CHECK_ERROR_CALL(mcp2515.setFilter(MCP2515::RXF0, false, MY_ID));
+
+    CHECK_ERROR_CALL(mcp2515.setNormalMode());
 
     can_frame registrationMsg = createRegistrationMsg(MY_ID);
 
@@ -60,7 +61,6 @@ MCP2515::ERROR CANInitialization(MCP2515& mcp2515) {
 
         // Waiting for response
         unsigned long timeoutStart = millis();
-        bool responseReceived = false;
         can_frame responseMsg = {};
 
         while (millis() - timeoutStart < RESPONSE_TIMEOUT) {
@@ -78,6 +78,8 @@ MCP2515::ERROR CANInitialization(MCP2515& mcp2515) {
             break;
         }
     }
+
+    CHECK_ERROR_CALL(mcp2515.reset());
 
     if (!registered) {
         return MCP2515::ERROR_FAIL;
