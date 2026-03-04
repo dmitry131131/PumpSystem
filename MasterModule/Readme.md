@@ -7,7 +7,7 @@ CubeMX configuration -> Coding -> Arm-Gcc compilation -> openOCD upload
 # Build
 ```bash
     cd MasterModule/ 
-    make
+    compiledb make
 ```
 
 # Load
