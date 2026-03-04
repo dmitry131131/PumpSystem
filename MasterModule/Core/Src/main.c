@@ -18,7 +18,6 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
-#include "usb_device.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -32,7 +31,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
+const uint32_t MY_ID = 100;
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -44,11 +43,6 @@
 CAN_HandleTypeDef hcan;
 
 /* USER CODE BEGIN PV */
-
-CAN_RxHeaderTypeDef RxHeader;
-
-uint8_t TxData[8] = {};
-uint8_t RxData[8] = {};
 
 uint32_t TxMailbox = 0;
 uint32_t CAN_Error = 0;
@@ -80,16 +74,42 @@ CAN_TxHeaderTypeDef CreateRegistrationResponseHeader(uint32_t DeviceId) {
   return TxHeader;
 }
 
+// FIXME doesn't work with USB enabled
 void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *can) {
-  if (HAL_CAN_GetRxMessage(&hcan, CAN_RX_FIFO0, &RxHeader, RxData) == HAL_OK) {
+  CAN_RxHeaderTypeDef RxHeader;
+  uint8_t RxData[8] = {};
+  if (HAL_CAN_GetRxMessage(can, CAN_RX_FIFO0, &RxHeader, RxData) == HAL_OK) {
+    if (RxHeader.StdId != MY_ID) {
+      return;
+    }
+
     HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
 
-    // Create registration response
-    CAN_TxHeaderTypeDef TxHeader = CreateRegistrationResponseHeader(101);
-    // Fill the CAN TxData
-    TxData[0] = 0x02;
+    if (RxHeader.DLC < 1) {
+      return;
+    }
 
-    HAL_Error = HAL_CAN_AddTxMessage(&hcan, &TxHeader, TxData, &TxMailbox);
+    switch (RxData[0])
+    {
+    // Registration message
+    case 0x01:
+      {
+        if (RxHeader.DLC != 2) {
+          return;
+        }
+        // Create registration response
+        CAN_TxHeaderTypeDef TxHeader = CreateRegistrationResponseHeader(RxData[1]);
+        // Fill the CAN TxData
+        uint8_t TxData[8] = {};
+        TxData[0] = 0x02; // Registration response code
+
+        HAL_Error = HAL_CAN_AddTxMessage(&hcan, &TxHeader, TxData, &TxMailbox);
+      }
+      break;
+    
+    default:
+      break;
+    }
   }
 }
 
@@ -97,8 +117,6 @@ void HAL_CAN_ErrorCallback(CAN_HandleTypeDef *can) {
   CAN_Error = HAL_CAN_GetError(&hcan);
   // HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
 }
-
-
 
 
 /* USER CODE END 0 */
@@ -133,7 +151,6 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_CAN_Init();
-  MX_USB_DEVICE_Init();
   /* USER CODE BEGIN 2 */
 
   CAN_FilterTypeDef sFilterConfig;
@@ -165,7 +182,10 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
     // HAL_Error = HAL_CAN_AddTxMessage(&hcan, &TxHeader, TxData, &TxMailbox);
-    // HAL_Delay(100);
+    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+    HAL_Delay(70);
+    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+    HAL_Delay(1500);
   }
   /* USER CODE END 3 */
 }
@@ -178,7 +198,6 @@ void SystemClock_Config(void)
 {
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
-  RCC_PeriphCLKInitTypeDef PeriphClkInit = {0};
 
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
@@ -205,12 +224,6 @@ void SystemClock_Config(void)
   RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
 
   if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_USB;
-  PeriphClkInit.UsbClockSelection = RCC_USBCLKSOURCE_PLL_DIV1_5;
-  if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
   {
     Error_Handler();
   }
@@ -268,7 +281,6 @@ static void MX_GPIO_Init(void)
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOD_CLK_ENABLE();
-  __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
