@@ -22,6 +22,9 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
+#include "Device.h"
+#include "BusConnectionConfig.h"
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -31,7 +34,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
+const uint32_t MY_ID = 100;
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -44,16 +47,12 @@ CAN_HandleTypeDef hcan;
 
 /* USER CODE BEGIN PV */
 
-CAN_TxHeaderTypeDef TxHeader;
-CAN_RxHeaderTypeDef RxHeader;
-
-uint8_t TxData[8] = {};
-uint8_t RxData[8] = {};
-
 uint32_t TxMailbox = 0;
 uint32_t CAN_Error = 0;
-
 HAL_StatusTypeDef HAL_Error;
+
+struct PumpList Pumps = {};
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -67,9 +66,112 @@ static void MX_CAN_Init(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
+CAN_TxHeaderTypeDef CreateRegistrationResponseHeader(uint32_t DeviceId) {
+  CAN_TxHeaderTypeDef TxHeader;
+
+  TxHeader.StdId = DeviceId;
+  TxHeader.ExtId = 0;
+  TxHeader.RTR = CAN_RTR_DATA;
+  TxHeader.IDE = CAN_ID_STD;
+  TxHeader.DLC = 1;
+  TxHeader.TransmitGlobalTime = 0;
+
+  return TxHeader;
+}
+
 void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *can) {
-  if (HAL_CAN_GetRxMessage(&hcan, CAN_RX_FIFO0, &RxHeader, RxData) == HAL_OK) {
-    HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
+  CAN_RxHeaderTypeDef RxHeader;
+  uint8_t RxData[8] = {};
+  if (HAL_CAN_GetRxMessage(can, CAN_RX_FIFO0, &RxHeader, RxData) == HAL_OK) {
+    if (RxHeader.StdId != MY_ID) {
+      return;
+    }
+
+    if (RxHeader.DLC < 1) {
+      return;
+    }
+
+    switch (RxData[0])
+    {
+    // Registration message
+    case REGISTRATION_REQUEST:
+      {
+        if (RxHeader.DLC != 2) {
+          return;
+        }
+
+        HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
+
+        struct Pump *Old = FindPump(&Pumps, RxData[1]); 
+        if (Old && Old->State == PUMP_DISABLE) {
+          return;
+        }
+
+        struct Pump New = {.Id = RxData[1],
+                           .State = PUMP_ENABLE};  // Get Pump ID
+
+        // Create registration response header
+        CAN_TxHeaderTypeDef TxHeader = CreateRegistrationResponseHeader(New.Id);
+        uint8_t TxData[8] = {};
+        if (AddPump(&Pumps, New)) {
+        // Fill the CAN TxData
+        TxData[0] = REGISTRATION_SUCCESS; // Registration response code
+        }
+        else {
+          TxData[0] = REGISTRATION_DECLINED; // Registration decline code
+        }
+
+        HAL_Error = HAL_CAN_AddTxMessage(&hcan, &TxHeader, TxData, &TxMailbox);
+      }
+      break;
+
+    case FORWARD_LOCK_REACHED: 
+      {
+        if (RxHeader.DLC != 1) {
+          return;
+        }
+        // If not registered
+        struct Pump *Pump = FindPump(&Pumps, RxData[1]); 
+        if (!Pump) {
+          return;
+        }
+
+        Pump->State = PUMP_BLOCKED_FORWARD;
+      }
+      break;
+    case REVERSE_LOCK_REACHED: 
+      {
+        if (RxHeader.DLC != 1) {
+          return;
+        }
+        // If not registered
+        struct Pump *Pump = FindPump(&Pumps, RxData[1]); 
+        if (!Pump) {
+          return;
+        }
+
+        Pump->State = PUMP_BLOCKED_REVERSE;
+      }
+      break;
+    case REVERSE_LOCK_RELEASED:
+    case FORWARD_LOCK_RELEASED: 
+      {
+        if (RxHeader.DLC != 1) {
+          return;
+        }
+        // If not registered
+        struct Pump *Pump = FindPump(&Pumps, RxData[1]); 
+        if (!Pump) {
+          return;
+        }
+
+        Pump->State = PUMP_ENABLE;
+      }
+      break;
+    
+    default:
+      break;
+    }
   }
 }
 
@@ -77,6 +179,7 @@ void HAL_CAN_ErrorCallback(CAN_HandleTypeDef *can) {
   CAN_Error = HAL_CAN_GetError(&hcan);
   // HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
 }
+
 
 /* USER CODE END 0 */
 
@@ -112,6 +215,8 @@ int main(void)
   MX_CAN_Init();
   /* USER CODE BEGIN 2 */
 
+  PumpListInit(&Pumps, 16);
+
   CAN_FilterTypeDef sFilterConfig;
   sFilterConfig.FilterBank = 0;
   sFilterConfig.FilterMode = CAN_FILTERMODE_IDMASK;
@@ -127,18 +232,6 @@ int main(void)
     Error_Handler();
   }
 
-  TxHeader.StdId = 0x0123;
-  TxHeader.ExtId = 0;
-  TxHeader.RTR = CAN_RTR_DATA;
-  TxHeader.IDE = CAN_ID_STD;
-  TxHeader.DLC = 8;
-  TxHeader.TransmitGlobalTime = 0;
-  
-  // Fill the CAN TxData
-  for (uint8_t i = 0; i < sizeof(TxData)/sizeof(TxData[0]); ++i) {
-    TxData[i] = i;
-  }
-
   HAL_Error = HAL_CAN_Start(&hcan);
   HAL_Error = HAL_CAN_ActivateNotification(&hcan, CAN_IT_RX_FIFO0_MSG_PENDING | CAN_IT_ERROR | CAN_IT_BUSOFF | CAN_IT_LAST_ERROR_CODE);
 
@@ -152,16 +245,14 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    HAL_Error = HAL_CAN_AddTxMessage(&hcan, &TxHeader, TxData, &TxMailbox);
-    HAL_Delay(500);
-      // HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
-      // HAL_Delay(2000);
-      // HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
-      // HAL_Delay(500);
-
-      // HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
-      // HAL_Delay(500);
+    // HAL_Error = HAL_CAN_AddTxMessage(&hcan, &TxHeader, TxData, &TxMailbox);
+    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+    HAL_Delay(70);
+    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+    HAL_Delay(1500);
   }
+
+  PumpListFree(&Pumps);
   /* USER CODE END 3 */
 }
 
@@ -177,12 +268,13 @@ void SystemClock_Config(void)
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
   */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
+  RCC_OscInitStruct.HSEState = RCC_HSE_ON;
+  RCC_OscInitStruct.HSEPredivValue = RCC_HSE_PREDIV_DIV1;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
-  RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
-  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI_DIV2;
-  RCC_OscInitStruct.PLL.PLLMUL = RCC_PLL_MUL8;
+  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
+  RCC_OscInitStruct.PLL.PLLMUL = RCC_PLL_MUL9;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
     Error_Handler();
@@ -193,11 +285,11 @@ void SystemClock_Config(void)
   RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
                               |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
-  RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
+  RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV2;
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
   RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
 
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_1) != HAL_OK)
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK)
   {
     Error_Handler();
   }
@@ -219,8 +311,8 @@ static void MX_CAN_Init(void)
 
   /* USER CODE END CAN_Init 1 */
   hcan.Instance = CAN1;
-  hcan.Init.Prescaler = 40;
-  hcan.Init.Mode = CAN_MODE_LOOPBACK;
+  hcan.Init.Prescaler = 45;
+  hcan.Init.Mode = CAN_MODE_NORMAL;
   hcan.Init.SyncJumpWidth = CAN_SJW_1TQ;
   hcan.Init.TimeSeg1 = CAN_BS1_13TQ;
   hcan.Init.TimeSeg2 = CAN_BS2_2TQ;
@@ -254,7 +346,8 @@ static void MX_GPIO_Init(void)
 
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOC_CLK_ENABLE();
-  __HAL_RCC_GPIOA_CLK_ENABLE();
+  __HAL_RCC_GPIOD_CLK_ENABLE();
+  __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
