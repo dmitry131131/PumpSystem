@@ -22,6 +22,9 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
+#include "Device.h"
+#include "BusConnectionConfig.h"
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -46,8 +49,10 @@ CAN_HandleTypeDef hcan;
 
 uint32_t TxMailbox = 0;
 uint32_t CAN_Error = 0;
-
 HAL_StatusTypeDef HAL_Error;
+
+struct PumpList Pumps = {};
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -74,7 +79,6 @@ CAN_TxHeaderTypeDef CreateRegistrationResponseHeader(uint32_t DeviceId) {
   return TxHeader;
 }
 
-// FIXME doesn't work with USB enabled
 void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *can) {
   CAN_RxHeaderTypeDef RxHeader;
   uint8_t RxData[8] = {};
@@ -83,8 +87,6 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *can) {
       return;
     }
 
-    HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
-
     if (RxHeader.DLC < 1) {
       return;
     }
@@ -92,18 +94,78 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *can) {
     switch (RxData[0])
     {
     // Registration message
-    case 0x01:
+    case REGISTRATION_REQUEST:
       {
         if (RxHeader.DLC != 2) {
           return;
         }
-        // Create registration response
-        CAN_TxHeaderTypeDef TxHeader = CreateRegistrationResponseHeader(RxData[1]);
-        // Fill the CAN TxData
+
+        HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
+
+        struct Pump *Old = FindPump(&Pumps, RxData[1]); 
+        if (Old && Old->State == PUMP_DISABLE) {
+          return;
+        }
+
+        struct Pump New = {.Id = RxData[1],
+                           .State = PUMP_ENABLE};  // Get Pump ID
+
+        // Create registration response header
+        CAN_TxHeaderTypeDef TxHeader = CreateRegistrationResponseHeader(New.Id);
         uint8_t TxData[8] = {};
-        TxData[0] = 0x02; // Registration response code
+        if (AddPump(&Pumps, New)) {
+        // Fill the CAN TxData
+        TxData[0] = REGISTRATION_SUCCESS; // Registration response code
+        }
+        else {
+          TxData[0] = REGISTRATION_DECLINED; // Registration decline code
+        }
 
         HAL_Error = HAL_CAN_AddTxMessage(&hcan, &TxHeader, TxData, &TxMailbox);
+      }
+      break;
+
+    case FORWARD_LOCK_REACHED: 
+      {
+        if (RxHeader.DLC != 1) {
+          return;
+        }
+        // If not registered
+        struct Pump *Pump = FindPump(&Pumps, RxData[1]); 
+        if (!Pump) {
+          return;
+        }
+
+        Pump->State = PUMP_BLOCKED_FORWARD;
+      }
+      break;
+    case REVERSE_LOCK_REACHED: 
+      {
+        if (RxHeader.DLC != 1) {
+          return;
+        }
+        // If not registered
+        struct Pump *Pump = FindPump(&Pumps, RxData[1]); 
+        if (!Pump) {
+          return;
+        }
+
+        Pump->State = PUMP_BLOCKED_REVERSE;
+      }
+      break;
+    case REVERSE_LOCK_RELEASED:
+    case FORWARD_LOCK_RELEASED: 
+      {
+        if (RxHeader.DLC != 1) {
+          return;
+        }
+        // If not registered
+        struct Pump *Pump = FindPump(&Pumps, RxData[1]); 
+        if (!Pump) {
+          return;
+        }
+
+        Pump->State = PUMP_ENABLE;
       }
       break;
     
@@ -153,6 +215,8 @@ int main(void)
   MX_CAN_Init();
   /* USER CODE BEGIN 2 */
 
+  PumpListInit(&Pumps, 16);
+
   CAN_FilterTypeDef sFilterConfig;
   sFilterConfig.FilterBank = 0;
   sFilterConfig.FilterMode = CAN_FILTERMODE_IDMASK;
@@ -187,6 +251,8 @@ int main(void)
     HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
     HAL_Delay(1500);
   }
+
+  PumpListFree(&Pumps);
   /* USER CODE END 3 */
 }
 
