@@ -3,46 +3,39 @@
 #include "Rotation.hpp"
 #include "BusConnection.hpp"
 
-#include <SPI.h>
-#include <mcp2515.h>
-
-struct can_frame canMsg;
-MCP2515 mcp2515(10);
+MCP2515 mcp2515(CS_PIN);
+bool registeredInCAN = false; 
 
 void setup() {
   // Set pins as output
-  // pinMode(DIR_PIN,    OUTPUT);
-  // pinMode(STEP_PIN,   OUTPUT);
-  // pinMode(MS1_PIN,    OUTPUT);
-  // pinMode(MS2_PIN,    OUTPUT);
-  // pinMode(MS3_PIN,    OUTPUT);
-  // pinMode(ENABLE_PIN, OUTPUT);
-  
+  pinMode(DIR_PIN,    OUTPUT);
+  pinMode(STEP_PIN,   OUTPUT);
+  pinMode(MS1_PIN,    OUTPUT);
+  pinMode(MS2_PIN,    OUTPUT);
+  pinMode(MS3_PIN,    OUTPUT);
+  pinMode(ENABLE_PIN, OUTPUT);
+
   // Disable driver (active LOW)
-  // digitalWrite(ENABLE_PIN, HIGH);
+  digitalWrite(ENABLE_PIN, HIGH);
+  // Set microsteping
+  set_microsteping_coeff(16);
 
-  pinMode(5, OUTPUT);
-  pinMode(6, OUTPUT);
-  digitalWrite(6, HIGH);
-
-  // Disable microstepping
-  // set_microstepping_coeff(1);
+  // Delay for all device initialization
+  delay(2000);
 
   // CAN configuration
-  mcp2515.reset();
-  mcp2515.setBitrate(CAN_50KBPS, MCP_8MHZ);
-  mcp2515.setNormalMode();
+  if(CANInitialization(mcp2515) == MCP2515::ERROR_OK) {
+    registeredInCAN = true;
+  }
 }
 
 void loop() {
-
-  if (mcp2515.readMessage(&canMsg) == MCP2515::ERROR_OK) {
-    digitalWrite(5, HIGH);
-    delay(100);
-    digitalWrite(5, LOW);
-    delay(100);
+  if (!registeredInCAN) {
+    return;
   }
-  
-  // rotation(Direction::FORWARD, 120);
+
+  // rotate(Direction::FORWARD, 442);
+  rotate(Direction::FORWARD, 50);
+  delay(5000);
 }
 
