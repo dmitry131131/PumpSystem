@@ -45,6 +45,10 @@ const uint32_t MY_ID = 100;
 /* Private variables ---------------------------------------------------------*/
 CAN_HandleTypeDef hcan;
 
+TIM_HandleTypeDef htim1;
+
+UART_HandleTypeDef huart1;
+
 /* USER CODE BEGIN PV */
 
 uint32_t TxMailbox = 0;
@@ -59,6 +63,8 @@ struct PumpList Pumps = {};
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_CAN_Init(void);
+static void MX_USART1_UART_Init(void);
+static void MX_TIM1_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -77,6 +83,50 @@ CAN_TxHeaderTypeDef CreateRegistrationResponseHeader(uint32_t DeviceId) {
   TxHeader.TransmitGlobalTime = 0;
 
   return TxHeader;
+}
+
+CAN_TxHeaderTypeDef CreateStartCommandHeader() {
+  CAN_TxHeaderTypeDef TxHeader;
+
+  TxHeader.StdId = COMMAND_START;
+  TxHeader.ExtId = 0;
+  TxHeader.RTR = CAN_RTR_DATA;
+  TxHeader.IDE = CAN_ID_STD;
+  TxHeader.DLC = 0;
+  TxHeader.TransmitGlobalTime = 0;
+
+  return TxHeader;
+}
+
+CAN_TxHeaderTypeDef CreateRotationOperationHeader(uint32_t DeviceId) {
+  CAN_TxHeaderTypeDef TxHeader;
+
+  TxHeader.StdId = DeviceId;
+  TxHeader.ExtId = 0;
+  TxHeader.RTR = CAN_RTR_DATA;
+  TxHeader.IDE = CAN_ID_STD;
+  TxHeader.DLC = 8;
+  TxHeader.TransmitGlobalTime = 0;
+
+  return TxHeader;
+}
+
+void CreateRotationOperationData(uint8_t* TxData, enum RotationDirection direction, float degree, uint8_t time) {
+  union {
+    float f;
+    uint8_t bytes[4];
+  } converter;
+
+  TxData[0] = DATA_PACKAGE;
+  TxData[1] = ROTATION;
+  TxData[2] = direction;
+
+  converter.f = degree;
+  for (size_t i = 0; i < sizeof(converter.bytes) / sizeof(uint8_t); ++i) {
+    TxData[3 + i] = converter.bytes[i];
+  }
+
+  TxData[7] = time;
 }
 
 void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *can) {
@@ -100,12 +150,19 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *can) {
           return;
         }
 
-        HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
+        struct Pump *Old = FindPump(&Pumps, RxData[1]);
+        // If Pump already in list 
+        if (Old) {
+          Old->State = PUMP_ENABLE;
+          CAN_TxHeaderTypeDef TxHeader = CreateRegistrationResponseHeader(Old->Id);
+          uint8_t TxData[8] = {};
+          TxData[0] = REGISTRATION_SUCCESS; // Registration response code
+          HAL_Error = HAL_CAN_AddTxMessage(&hcan, &TxHeader, TxData, &TxMailbox);
 
-        struct Pump *Old = FindPump(&Pumps, RxData[1]); 
-        if (Old && Old->State == PUMP_DISABLE) {
           return;
         }
+
+        HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
 
         struct Pump New = {.Id = RxData[1],
                            .State = PUMP_ENABLE};  // Get Pump ID
@@ -180,7 +237,6 @@ void HAL_CAN_ErrorCallback(CAN_HandleTypeDef *can) {
   // HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
 }
 
-
 /* USER CODE END 0 */
 
 /**
@@ -213,6 +269,8 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_CAN_Init();
+  MX_USART1_UART_Init();
+  MX_TIM1_Init();
   /* USER CODE BEGIN 2 */
 
   PumpListInit(&Pumps, 16);
@@ -240,16 +298,45 @@ int main(void)
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+
+  while (Pumps.size == 0)
+  {
+    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+    HAL_Delay(70);
+    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+    HAL_Delay(1500);
+  }
+
+  CAN_TxHeaderTypeDef OperationHeader = CreateRotationOperationHeader(Pumps.List[0].Id);
+  uint8_t OperationData[8] = {};
+  CreateRotationOperationData(OperationData, FORWARD, 90, 6);
+  HAL_Error = HAL_CAN_AddTxMessage(&hcan, &OperationHeader, OperationData, &TxMailbox);
+  CreateRotationOperationData(OperationData, REVERSE, 90, 6);
+  HAL_Error = HAL_CAN_AddTxMessage(&hcan, &OperationHeader, OperationData, &TxMailbox);
+  HAL_Delay(500);
+
   while (1)
   {
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
     // HAL_Error = HAL_CAN_AddTxMessage(&hcan, &TxHeader, TxData, &TxMailbox);
-    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
-    HAL_Delay(70);
-    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
-    HAL_Delay(1500);
+    // HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+    // HAL_Delay(70);
+    // HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+    // HAL_Delay(1500);
+
+    CAN_TxHeaderTypeDef StartCommand = CreateStartCommandHeader();
+    uint8_t TxData[8] = {};
+    HAL_Error = HAL_CAN_AddTxMessage(&hcan, &StartCommand, TxData, &TxMailbox);
+
+    HAL_Delay(6000);
+
+  CAN_TxHeaderTypeDef GarbageHeader = CreateRotationOperationHeader(102);
+  uint8_t GarbageData[8] = {};
+  CreateRotationOperationData(GarbageData, FORWARD, 90, 6);
+  HAL_Error = HAL_CAN_AddTxMessage(&hcan, &GarbageHeader, GarbageData, &TxMailbox);
+  HAL_Delay(2000);
   }
 
   PumpListFree(&Pumps);
@@ -333,6 +420,85 @@ static void MX_CAN_Init(void)
 }
 
 /**
+  * @brief TIM1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM1_Init(void)
+{
+
+  /* USER CODE BEGIN TIM1_Init 0 */
+
+  /* USER CODE END TIM1_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM1_Init 1 */
+
+  /* USER CODE END TIM1_Init 1 */
+  htim1.Instance = TIM1;
+  htim1.Init.Prescaler = 3599;
+  htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim1.Init.Period = 65535;
+  htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim1.Init.RepetitionCounter = 0;
+  htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim1, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim1, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM1_Init 2 */
+
+  /* USER CODE END TIM1_Init 2 */
+
+}
+
+/**
+  * @brief USART1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_USART1_UART_Init(void)
+{
+
+  /* USER CODE BEGIN USART1_Init 0 */
+
+  /* USER CODE END USART1_Init 0 */
+
+  /* USER CODE BEGIN USART1_Init 1 */
+
+  /* USER CODE END USART1_Init 1 */
+  huart1.Instance = USART1;
+  huart1.Init.BaudRate = 115200;
+  huart1.Init.WordLength = UART_WORDLENGTH_8B;
+  huart1.Init.StopBits = UART_STOPBITS_1;
+  huart1.Init.Parity = UART_PARITY_NONE;
+  huart1.Init.Mode = UART_MODE_TX_RX;
+  huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart1.Init.OverSampling = UART_OVERSAMPLING_16;
+  if (HAL_UART_Init(&huart1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN USART1_Init 2 */
+
+  /* USER CODE END USART1_Init 2 */
+
+}
+
+/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
@@ -347,6 +513,7 @@ static void MX_GPIO_Init(void)
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOD_CLK_ENABLE();
+  __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */

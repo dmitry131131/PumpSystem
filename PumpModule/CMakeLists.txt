@@ -108,7 +108,8 @@ target_link_libraries(mcp2515 PUBLIC m arduino_core)
 target_link_libraries(${TARGET} PRIVATE arduino_core mcp2515)
 
 # Include directory
-target_include_directories(${TARGET} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_include_directories(${TARGET} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include 
+                                             ${CMAKE_CURRENT_SOURCE_DIR}/../Include)
 
 # Compile options
 target_compile_definitions(${TARGET} PRIVATE

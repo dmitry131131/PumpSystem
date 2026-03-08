@@ -27,3 +27,9 @@ SWCLK ---> 9pin
 ```bash
     st-flash --connect-under-reset erase
 ```
+
+# COM port debug 
+
+```bash
+    minicom -D /dev/ttyUSB0 -b 115200
+```

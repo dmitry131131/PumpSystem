@@ -2,15 +2,12 @@
 
 #pragma once
 
-enum Direction : unsigned char {
-  REVERSE = 0,
-  FORWARD = 1
-};
+#include "BusConnectionConfig.h"
 
 unsigned get_microsteping_coeff();
 void set_microsteping_coeff(unsigned coeff);
 
-void rotation(Direction direction, unsigned RPM, double time);
-void rotation(Direction direction, unsigned RPM);
-void rotate(Direction direction, double degree);
-void rotate_full(Direction direction, unsigned count);
+void rotation(RotationDirection direction, unsigned RPM, double time);
+void rotation(RotationDirection direction, unsigned RPM);
+void rotate(RotationDirection direction, double degree);
+void rotate_full(RotationDirection direction, unsigned count);

@@ -17,11 +17,32 @@ enum MessageType {
     REVERSE_LOCK_RELEASED = 0x16,
 
     DATA_PACKAGE = 0x20,
+    CLEAR_DATA_BUFFER = 0x21,
 
     ATTENDANCE_REQUEST = 0x30,
     ATTENDANCE_RESPONSE = 0x31
 };
 
+enum RotationDirection {
+  REVERSE = 0,
+  FORWARD = 1
+};
 
+enum OperationCode {
+    ROTATION = 0x01,
+    WAITING = 0x02
+};
+
+struct RotationOperation {
+    enum OperationCode opCode;
+    enum RotationDirection direction;
+    float degree;
+    unsigned time;  // In ms
+};
+
+struct WaitingOperation {
+    enum OperationCode opCode;
+    unsigned time;
+};
 
 #endif
