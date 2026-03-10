@@ -14,6 +14,10 @@ const unsigned STEPS_PER_REV = 200;    // 200 steps per rotation (default NEMA17
 // Indication
 const unsigned INDICATOR_PIN = 9;
 
+// Safety switch
+const unsigned FORWARD_SWITCH_PIN = 16;
+const unsigned REVERSE_SWITCH_PIN = 15;
+
 // MCP2515 pinout
 const unsigned CS_PIN = 10; //  CS pin
 const unsigned INT_PIN = 2; //  Interrupt pin

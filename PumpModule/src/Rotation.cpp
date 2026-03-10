@@ -61,12 +61,12 @@ void rotate(RotationDirection direction, double degree) {
     digitalWrite(ENABLE_PIN, HIGH);  // Disable driver
 }
 
-void rotate_full(RotationDirection direction, unsigned count) {
+void rotate(RotationDirection direction, double degree, unsigned RPM) {
     digitalWrite(DIR_PIN, direction);   // Set direction
-    unsigned long impuls_period = MINUTE / (6 * STEPS_PER_REV * get_microsteping_coeff());
+    unsigned long impuls_period = MINUTE / (RPM * STEPS_PER_REV * get_microsteping_coeff());
     digitalWrite(ENABLE_PIN, LOW);  // Enable driver
 
-    size_t impuls_count = STEPS_PER_REV * get_microsteping_coeff();
+    size_t impuls_count = static_cast<unsigned>(degree * STEPS_PER_REV * get_microsteping_coeff() / 360);
     for (size_t i = 0; i < impuls_count; ++i) {
         impuls(10);
         delayMicroseconds(impuls_period - 10);

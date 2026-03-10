@@ -45,8 +45,6 @@ const uint32_t MY_ID = 100;
 /* Private variables ---------------------------------------------------------*/
 CAN_HandleTypeDef hcan;
 
-TIM_HandleTypeDef htim1;
-
 UART_HandleTypeDef huart1;
 
 /* USER CODE BEGIN PV */
@@ -57,6 +55,9 @@ HAL_StatusTypeDef HAL_Error;
 
 struct PumpList Pumps = {};
 
+int NeedToUartActions = 0;
+int NeedToCANAction = 0;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -64,7 +65,6 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_CAN_Init(void);
 static void MX_USART1_UART_Init(void);
-static void MX_TIM1_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -129,112 +129,158 @@ void CreateRotationOperationData(uint8_t* TxData, enum RotationDirection directi
   TxData[7] = time;
 }
 
+CAN_TxHeaderTypeDef CreateClearDataBufferHeader(uint32_t DeviceId) {
+  CAN_TxHeaderTypeDef TxHeader;
+
+  TxHeader.StdId = DeviceId;
+  TxHeader.ExtId = 0;
+  TxHeader.RTR = CAN_RTR_DATA;
+  TxHeader.IDE = CAN_ID_STD;
+  TxHeader.DLC = 1;
+  TxHeader.TransmitGlobalTime = 0;
+
+  return TxHeader;
+}
+
+void CreateClearDataBufferData(uint8_t* TxData) {
+  TxData[0] = CLEAR_DATA_BUFFER;
+}
+
 void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *can) {
   CAN_RxHeaderTypeDef RxHeader;
   uint8_t RxData[8] = {};
-  if (HAL_CAN_GetRxMessage(can, CAN_RX_FIFO0, &RxHeader, RxData) == HAL_OK) {
-    if (RxHeader.StdId != MY_ID) {
-      return;
-    }
+  if (HAL_CAN_GetRxMessage(can, CAN_RX_FIFO0, &RxHeader, RxData) != HAL_OK) {
+    return;
+  }
 
-    if (RxHeader.DLC < 1) {
-      return;
-    }
+  if (RxHeader.StdId != MY_ID) {
+    return;
+  }
 
-    switch (RxData[0])
+  if (RxHeader.DLC < 1) {
+    return;
+  }
+
+  switch (RxData[0])
+  {
+  // Registration message
+  case REGISTRATION_REQUEST:
     {
-    // Registration message
-    case REGISTRATION_REQUEST:
-      {
-        if (RxHeader.DLC != 2) {
-          return;
-        }
+      if (RxHeader.DLC != 2) {
+        return;
+      }
 
-        struct Pump *Old = FindPump(&Pumps, RxData[1]);
-        // If Pump already in list 
-        if (Old) {
-          Old->State = PUMP_ENABLE;
-          CAN_TxHeaderTypeDef TxHeader = CreateRegistrationResponseHeader(Old->Id);
-          uint8_t TxData[8] = {};
-          TxData[0] = REGISTRATION_SUCCESS; // Registration response code
-          HAL_Error = HAL_CAN_AddTxMessage(&hcan, &TxHeader, TxData, &TxMailbox);
-
-          return;
-        }
-
-        HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
-
-        struct Pump New = {.Id = RxData[1],
-                           .State = PUMP_ENABLE};  // Get Pump ID
-
-        // Create registration response header
-        CAN_TxHeaderTypeDef TxHeader = CreateRegistrationResponseHeader(New.Id);
+      struct Pump *Old = FindPump(&Pumps, RxData[1]);
+      // If Pump already in list 
+      if (Old) {
+        Old->State = PUMP_ENABLE;
+        CAN_TxHeaderTypeDef TxHeader = CreateRegistrationResponseHeader(Old->Id);
         uint8_t TxData[8] = {};
-        if (AddPump(&Pumps, New)) {
-        // Fill the CAN TxData
         TxData[0] = REGISTRATION_SUCCESS; // Registration response code
-        }
-        else {
-          TxData[0] = REGISTRATION_DECLINED; // Registration decline code
-        }
-
         HAL_Error = HAL_CAN_AddTxMessage(&hcan, &TxHeader, TxData, &TxMailbox);
-      }
-      break;
 
-    case FORWARD_LOCK_REACHED: 
-      {
-        if (RxHeader.DLC != 1) {
-          return;
-        }
-        // If not registered
-        struct Pump *Pump = FindPump(&Pumps, RxData[1]); 
-        if (!Pump) {
-          return;
-        }
-
-        Pump->State = PUMP_BLOCKED_FORWARD;
+        return;
       }
-      break;
-    case REVERSE_LOCK_REACHED: 
-      {
-        if (RxHeader.DLC != 1) {
-          return;
-        }
-        // If not registered
-        struct Pump *Pump = FindPump(&Pumps, RxData[1]); 
-        if (!Pump) {
-          return;
-        }
 
-        Pump->State = PUMP_BLOCKED_REVERSE;
-      }
-      break;
-    case REVERSE_LOCK_RELEASED:
-    case FORWARD_LOCK_RELEASED: 
-      {
-        if (RxHeader.DLC != 1) {
-          return;
-        }
-        // If not registered
-        struct Pump *Pump = FindPump(&Pumps, RxData[1]); 
-        if (!Pump) {
-          return;
-        }
+      struct Pump New = {.Id = RxData[1],
+                          .State = PUMP_ENABLE};  // Get Pump ID
 
-        Pump->State = PUMP_ENABLE;
+      // Create registration response header
+      CAN_TxHeaderTypeDef TxHeader = CreateRegistrationResponseHeader(New.Id);
+      uint8_t TxData[8] = {};
+      if (AddPump(&Pumps, New)) {
+      // Fill the CAN TxData
+      TxData[0] = REGISTRATION_SUCCESS; // Registration response code
       }
-      break;
-    
-    default:
-      break;
+      else {
+        TxData[0] = REGISTRATION_DECLINED; // Registration decline code
+      }
+
+      HAL_Error = HAL_CAN_AddTxMessage(&hcan, &TxHeader, TxData, &TxMailbox);
     }
+    break;
+  // In case changing lock status it is need to clear pump OperationBuffer
+  case FORWARD_LOCK_REACHED: 
+    {
+      if (RxHeader.DLC != 1) {
+        return;
+      }
+      // If not registered
+      struct Pump *Pump = FindPump(&Pumps, RxData[1]); 
+      if (!Pump) {
+        return;
+      }
+
+      Pump->State = PUMP_BLOCKED_FORWARD;
+
+      // Send clear data buffer command
+      CAN_TxHeaderTypeDef TxHeader = CreateClearDataBufferHeader(RxData[1]);
+      uint8_t TxData[8] = {};
+      CreateClearDataBufferData(TxData);
+      HAL_Error = HAL_CAN_AddTxMessage(&hcan, &TxHeader, TxData, &TxMailbox);
+    }
+    break;
+  case REVERSE_LOCK_REACHED: 
+    {
+      if (RxHeader.DLC != 1) {
+        return;
+      }
+      // If not registered
+      struct Pump *Pump = FindPump(&Pumps, RxData[1]); 
+      if (!Pump) {
+        return;
+      }
+
+      Pump->State = PUMP_BLOCKED_REVERSE;
+
+      // Send clear data buffer command
+      CAN_TxHeaderTypeDef TxHeader = CreateClearDataBufferHeader(RxData[1]);
+      uint8_t TxData[8] = {};
+      CreateClearDataBufferData(TxData);
+      HAL_Error = HAL_CAN_AddTxMessage(&hcan, &TxHeader, TxData, &TxMailbox);
+    }
+    break;
+  case REVERSE_LOCK_RELEASED:
+  case FORWARD_LOCK_RELEASED: 
+    {
+      if (RxHeader.DLC != 1) {
+        return;
+      }
+      // If not registered
+      struct Pump *Pump = FindPump(&Pumps, RxData[1]); 
+      if (!Pump) {
+        return;
+      }
+
+      Pump->State = PUMP_ENABLE;
+
+      // Send clear data buffer command
+      CAN_TxHeaderTypeDef TxHeader = CreateClearDataBufferHeader(RxData[1]);
+      uint8_t TxData[8] = {};
+      CreateClearDataBufferData(TxData);
+      HAL_Error = HAL_CAN_AddTxMessage(&hcan, &TxHeader, TxData, &TxMailbox);
+    }
+    break;
+  
+  default:
+    break;
   }
 }
 
 void HAL_CAN_ErrorCallback(CAN_HandleTypeDef *can) {
   CAN_Error = HAL_CAN_GetError(&hcan);
   // HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+}
+
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+  HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
+  
+  if(GPIO_Pin != GPIO_PIN_11) {
+    return;
+  }
+
+  NeedToUartActions = 1;
 }
 
 /* USER CODE END 0 */
@@ -269,8 +315,7 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_CAN_Init();
-  MX_USART1_UART_Init();
-  MX_TIM1_Init();
+  // MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
 
   PumpListInit(&Pumps, 16);
@@ -298,6 +343,7 @@ int main(void)
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+  uint8_t Hello[] = "Hello\n";
 
   while (Pumps.size == 0)
   {
@@ -305,38 +351,56 @@ int main(void)
     HAL_Delay(70);
     HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
     HAL_Delay(1500);
+    // HAL_UART_Transmit(&huart1, Hello, sizeof(Hello), 100);
   }
 
-  CAN_TxHeaderTypeDef OperationHeader = CreateRotationOperationHeader(Pumps.List[0].Id);
-  uint8_t OperationData[8] = {};
-  CreateRotationOperationData(OperationData, FORWARD, 90, 6);
-  HAL_Error = HAL_CAN_AddTxMessage(&hcan, &OperationHeader, OperationData, &TxMailbox);
-  CreateRotationOperationData(OperationData, REVERSE, 90, 6);
-  HAL_Error = HAL_CAN_AddTxMessage(&hcan, &OperationHeader, OperationData, &TxMailbox);
-  HAL_Delay(500);
+  // CAN_TxHeaderTypeDef OperationHeader = CreateRotationOperationHeader(Pumps.List[0].Id);
+  // uint8_t OperationData[8] = {};
+  // CreateRotationOperationData(OperationData, FORWARD, 90, 6);
+  // HAL_Error = HAL_CAN_AddTxMessage(&hcan, &OperationHeader, OperationData, &TxMailbox);
+  // CreateRotationOperationData(OperationData, REVERSE, 90, 6);
+  // HAL_Error = HAL_CAN_AddTxMessage(&hcan, &OperationHeader, OperationData, &TxMailbox);
+  // HAL_Delay(500);
+
+  int UART_INIT = 0;
 
   while (1)
   {
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    // HAL_Error = HAL_CAN_AddTxMessage(&hcan, &TxHeader, TxData, &TxMailbox);
-    // HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
-    // HAL_Delay(70);
-    // HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
-    // HAL_Delay(1500);
 
-    CAN_TxHeaderTypeDef StartCommand = CreateStartCommandHeader();
-    uint8_t TxData[8] = {};
-    HAL_Error = HAL_CAN_AddTxMessage(&hcan, &StartCommand, TxData, &TxMailbox);
+    if (NeedToUartActions) {
+      NeedToUartActions = 0;
 
-    HAL_Delay(6000);
+      if (!UART_INIT) {
+        MX_USART1_UART_Init();
+        UART_INIT = 1;
+      } else {
+        HAL_UART_DeInit(&huart1);
+        UART_INIT = 0;
+      }
 
-  CAN_TxHeaderTypeDef GarbageHeader = CreateRotationOperationHeader(102);
-  uint8_t GarbageData[8] = {};
-  CreateRotationOperationData(GarbageData, FORWARD, 90, 6);
-  HAL_Error = HAL_CAN_AddTxMessage(&hcan, &GarbageHeader, GarbageData, &TxMailbox);
-  HAL_Delay(2000);
+      // HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+      // HAL_Delay(1500);
+      // HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+      // HAL_Delay(1500);
+    }
+
+
+
+
+  //   CAN_TxHeaderTypeDef StartCommand = CreateStartCommandHeader();
+  //   uint8_t TxData[8] = {};
+  //   HAL_Error = HAL_CAN_AddTxMessage(&hcan, &StartCommand, TxData, &TxMailbox);
+
+  //   HAL_Delay(6000);
+
+  // CAN_TxHeaderTypeDef GarbageHeader = CreateRotationOperationHeader(102);
+  // uint8_t GarbageData[8] = {};
+  // CreateRotationOperationData(GarbageData, FORWARD, 90, 6);
+  // HAL_Error = HAL_CAN_AddTxMessage(&hcan, &GarbageHeader, GarbageData, &TxMailbox);
+  // HAL_Delay(2000);
   }
 
   PumpListFree(&Pumps);
@@ -420,52 +484,6 @@ static void MX_CAN_Init(void)
 }
 
 /**
-  * @brief TIM1 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_TIM1_Init(void)
-{
-
-  /* USER CODE BEGIN TIM1_Init 0 */
-
-  /* USER CODE END TIM1_Init 0 */
-
-  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
-  TIM_MasterConfigTypeDef sMasterConfig = {0};
-
-  /* USER CODE BEGIN TIM1_Init 1 */
-
-  /* USER CODE END TIM1_Init 1 */
-  htim1.Instance = TIM1;
-  htim1.Init.Prescaler = 3599;
-  htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim1.Init.Period = 65535;
-  htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-  htim1.Init.RepetitionCounter = 0;
-  htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-  if (HAL_TIM_Base_Init(&htim1) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
-  if (HAL_TIM_ConfigClockSource(&htim1, &sClockSourceConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
-  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-  if (HAL_TIMEx_MasterConfigSynchronization(&htim1, &sMasterConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN TIM1_Init 2 */
-
-  /* USER CODE END TIM1_Init 2 */
-
-}
-
-/**
   * @brief USART1 Initialization Function
   * @param None
   * @retval None
@@ -513,8 +531,8 @@ static void MX_GPIO_Init(void)
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOD_CLK_ENABLE();
-  __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
+  __HAL_RCC_GPIOA_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
@@ -525,6 +543,16 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : PB11 */
+  GPIO_InitStruct.Pin = GPIO_PIN_11;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
+  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  /* EXTI interrupt init*/
+  HAL_NVIC_SetPriority(EXTI15_10_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 

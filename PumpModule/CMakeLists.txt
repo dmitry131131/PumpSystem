@@ -104,8 +104,43 @@ target_compile_options(mcp2515 PUBLIC
 )
 target_link_libraries(mcp2515 PUBLIC m arduino_core)
 
+
+# Add pin change interrupt lib
+CPMAddPackage(
+    NAME PinChangeInterrupt
+    GIT_REPOSITORY "https://github.com/NicoHood/PinChangeInterrupt.git"
+    GIT_TAG 1.2.9
+    DOWNLOAD_ONLY YES
+)
+message(STATUS "PinChangeInterrupt source dir: ${PinChangeInterrupt_SOURCE_DIR}")
+
+# Compile PinChangeInterrupt lib
+file(GLOB_RECURSE MCP2515_SOURCES
+    "${PinChangeInterrupt_SOURCE_DIR}/src/*.c"
+    "${PinChangeInterrupt_SOURCE_DIR}/src/*.cpp"
+)
+
+# Create lib
+add_library(pin_change_interrupt STATIC ${MCP2515_SOURCES})
+# ArduinoCore and SPI in dependency list
+target_include_directories(arduino_core PUBLIC
+    "${ArduinoCore_SOURCE_DIR}/cores/arduino"
+    "${ArduinoCore_SOURCE_DIR}/variants/${VARIANT}"
+    "${PinChangeInterrupt_SOURCE_DIR}/src/"
+)
+
+target_compile_definitions(pin_change_interrupt PUBLIC
+    F_CPU=16000000L
+    PCINT_API
+)
+target_compile_options(pin_change_interrupt PUBLIC
+    -mmcu=atmega328p
+    -Os -Wall
+)
+target_link_libraries(pin_change_interrupt PUBLIC m arduino_core)
+
 # Link Libraries
-target_link_libraries(${TARGET} PRIVATE arduino_core mcp2515)
+target_link_libraries(${TARGET} PRIVATE arduino_core mcp2515 pin_change_interrupt)
 
 # Include directory
 target_include_directories(${TARGET} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include 

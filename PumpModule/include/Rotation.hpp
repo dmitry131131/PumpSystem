@@ -10,4 +10,4 @@ void set_microsteping_coeff(unsigned coeff);
 void rotation(RotationDirection direction, unsigned RPM, double time);
 void rotation(RotationDirection direction, unsigned RPM);
 void rotate(RotationDirection direction, double degree);
-void rotate_full(RotationDirection direction, unsigned count);
+void rotate(RotationDirection direction, double degree, unsigned RPM);

@@ -1,7 +1,6 @@
 #include <Arduino.h>
 #include "Config.hpp"
 #include "BusConnection.hpp"
-#include "BusConnectionConfig.h"
 
 #include "Rotation.hpp"
 
@@ -104,6 +103,16 @@ MCP2515::ERROR SendAttendanceResponse(MCP2515 &mcp2515) {
     canMsg.can_id = MASTER_ID;
     canMsg.can_dlc = 2;
     canMsg.data[0] = ATTENDANCE_RESPONSE;
+    canMsg.data[1] = MY_ID;
+    
+    return mcp2515.sendMessage(&canMsg);
+}
+
+MCP2515::ERROR SendSwitchEventMessage(MCP2515 &mcp2515, MessageType msgType) {
+    can_frame canMsg = {};
+    canMsg.can_id = MASTER_ID;
+    canMsg.can_dlc = 2;
+    canMsg.data[0] = msgType;
     canMsg.data[1] = MY_ID;
     
     return mcp2515.sendMessage(&canMsg);

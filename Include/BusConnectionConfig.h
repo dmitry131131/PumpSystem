@@ -37,7 +37,7 @@ struct RotationOperation {
     enum OperationCode opCode;
     enum RotationDirection direction;
     float degree;
-    unsigned time;  // In ms
+    unsigned RPM;  // [2 - 16] RPM
 };
 
 struct WaitingOperation {
