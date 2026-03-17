@@ -23,7 +23,10 @@
 /* USER CODE BEGIN Includes */
 
 #include "Device.h"
+#include "BusConnection.h"
 #include "BusConnectionConfig.h"
+#include "FIFO.h"
+#include "UART.h"
 
 /* USER CODE END Includes */
 
@@ -52,7 +55,12 @@ UART_HandleTypeDef huart1;
 uint32_t TxMailbox = 0;
 uint32_t CAN_Error = 0;
 HAL_StatusTypeDef HAL_Error;
+fifo_t RxFIFO = NULL;
 
+fifo_t UARTRxFIFO = NULL;
+fifo_t UARTTxFIFO = NULL;
+
+// TODO Rewrite this to Hash Table
 struct PumpList Pumps = {};
 
 int NeedToUartActions = 0;
@@ -72,199 +80,21 @@ static void MX_USART1_UART_Init(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
-CAN_TxHeaderTypeDef CreateRegistrationResponseHeader(uint32_t DeviceId) {
-  CAN_TxHeaderTypeDef TxHeader;
-
-  TxHeader.StdId = DeviceId;
-  TxHeader.ExtId = 0;
-  TxHeader.RTR = CAN_RTR_DATA;
-  TxHeader.IDE = CAN_ID_STD;
-  TxHeader.DLC = 1;
-  TxHeader.TransmitGlobalTime = 0;
-
-  return TxHeader;
-}
-
-CAN_TxHeaderTypeDef CreateStartCommandHeader() {
-  CAN_TxHeaderTypeDef TxHeader;
-
-  TxHeader.StdId = COMMAND_START;
-  TxHeader.ExtId = 0;
-  TxHeader.RTR = CAN_RTR_DATA;
-  TxHeader.IDE = CAN_ID_STD;
-  TxHeader.DLC = 0;
-  TxHeader.TransmitGlobalTime = 0;
-
-  return TxHeader;
-}
-
-CAN_TxHeaderTypeDef CreateRotationOperationHeader(uint32_t DeviceId) {
-  CAN_TxHeaderTypeDef TxHeader;
-
-  TxHeader.StdId = DeviceId;
-  TxHeader.ExtId = 0;
-  TxHeader.RTR = CAN_RTR_DATA;
-  TxHeader.IDE = CAN_ID_STD;
-  TxHeader.DLC = 8;
-  TxHeader.TransmitGlobalTime = 0;
-
-  return TxHeader;
-}
-
-void CreateRotationOperationData(uint8_t* TxData, enum RotationDirection direction, float degree, uint8_t time) {
-  union {
-    float f;
-    uint8_t bytes[4];
-  } converter;
-
-  TxData[0] = DATA_PACKAGE;
-  TxData[1] = ROTATION;
-  TxData[2] = direction;
-
-  converter.f = degree;
-  for (size_t i = 0; i < sizeof(converter.bytes) / sizeof(uint8_t); ++i) {
-    TxData[3 + i] = converter.bytes[i];
-  }
-
-  TxData[7] = time;
-}
-
-CAN_TxHeaderTypeDef CreateClearDataBufferHeader(uint32_t DeviceId) {
-  CAN_TxHeaderTypeDef TxHeader;
-
-  TxHeader.StdId = DeviceId;
-  TxHeader.ExtId = 0;
-  TxHeader.RTR = CAN_RTR_DATA;
-  TxHeader.IDE = CAN_ID_STD;
-  TxHeader.DLC = 1;
-  TxHeader.TransmitGlobalTime = 0;
-
-  return TxHeader;
-}
-
-void CreateClearDataBufferData(uint8_t* TxData) {
-  TxData[0] = CLEAR_DATA_BUFFER;
-}
-
 void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *can) {
-  CAN_RxHeaderTypeDef RxHeader;
-  uint8_t RxData[8] = {};
-  if (HAL_CAN_GetRxMessage(can, CAN_RX_FIFO0, &RxHeader, RxData) != HAL_OK) {
+  CANRxMessage NewMessage = {};
+
+  if (HAL_CAN_GetRxMessage(can, CAN_RX_FIFO0, &NewMessage.Header, NewMessage.RxData) != HAL_OK) {
+    return;
+  }
+  if (NewMessage.Header.StdId != MY_ID) {
+    return;
+  }
+  if (NewMessage.Header.DLC < 1) {
     return;
   }
 
-  if (RxHeader.StdId != MY_ID) {
-    return;
-  }
-
-  if (RxHeader.DLC < 1) {
-    return;
-  }
-
-  switch (RxData[0])
-  {
-  // Registration message
-  case REGISTRATION_REQUEST:
-    {
-      if (RxHeader.DLC != 2) {
-        return;
-      }
-
-      struct Pump *Old = FindPump(&Pumps, RxData[1]);
-      // If Pump already in list 
-      if (Old) {
-        Old->State = PUMP_ENABLE;
-        CAN_TxHeaderTypeDef TxHeader = CreateRegistrationResponseHeader(Old->Id);
-        uint8_t TxData[8] = {};
-        TxData[0] = REGISTRATION_SUCCESS; // Registration response code
-        HAL_Error = HAL_CAN_AddTxMessage(&hcan, &TxHeader, TxData, &TxMailbox);
-
-        return;
-      }
-
-      struct Pump New = {.Id = RxData[1],
-                          .State = PUMP_ENABLE};  // Get Pump ID
-
-      // Create registration response header
-      CAN_TxHeaderTypeDef TxHeader = CreateRegistrationResponseHeader(New.Id);
-      uint8_t TxData[8] = {};
-      if (AddPump(&Pumps, New)) {
-      // Fill the CAN TxData
-      TxData[0] = REGISTRATION_SUCCESS; // Registration response code
-      }
-      else {
-        TxData[0] = REGISTRATION_DECLINED; // Registration decline code
-      }
-
-      HAL_Error = HAL_CAN_AddTxMessage(&hcan, &TxHeader, TxData, &TxMailbox);
-    }
-    break;
-  // In case changing lock status it is need to clear pump OperationBuffer
-  case FORWARD_LOCK_REACHED: 
-    {
-      if (RxHeader.DLC != 1) {
-        return;
-      }
-      // If not registered
-      struct Pump *Pump = FindPump(&Pumps, RxData[1]); 
-      if (!Pump) {
-        return;
-      }
-
-      Pump->State = PUMP_BLOCKED_FORWARD;
-
-      // Send clear data buffer command
-      CAN_TxHeaderTypeDef TxHeader = CreateClearDataBufferHeader(RxData[1]);
-      uint8_t TxData[8] = {};
-      CreateClearDataBufferData(TxData);
-      HAL_Error = HAL_CAN_AddTxMessage(&hcan, &TxHeader, TxData, &TxMailbox);
-    }
-    break;
-  case REVERSE_LOCK_REACHED: 
-    {
-      if (RxHeader.DLC != 1) {
-        return;
-      }
-      // If not registered
-      struct Pump *Pump = FindPump(&Pumps, RxData[1]); 
-      if (!Pump) {
-        return;
-      }
-
-      Pump->State = PUMP_BLOCKED_REVERSE;
-
-      // Send clear data buffer command
-      CAN_TxHeaderTypeDef TxHeader = CreateClearDataBufferHeader(RxData[1]);
-      uint8_t TxData[8] = {};
-      CreateClearDataBufferData(TxData);
-      HAL_Error = HAL_CAN_AddTxMessage(&hcan, &TxHeader, TxData, &TxMailbox);
-    }
-    break;
-  case REVERSE_LOCK_RELEASED:
-  case FORWARD_LOCK_RELEASED: 
-    {
-      if (RxHeader.DLC != 1) {
-        return;
-      }
-      // If not registered
-      struct Pump *Pump = FindPump(&Pumps, RxData[1]); 
-      if (!Pump) {
-        return;
-      }
-
-      Pump->State = PUMP_ENABLE;
-
-      // Send clear data buffer command
-      CAN_TxHeaderTypeDef TxHeader = CreateClearDataBufferHeader(RxData[1]);
-      uint8_t TxData[8] = {};
-      CreateClearDataBufferData(TxData);
-      HAL_Error = HAL_CAN_AddTxMessage(&hcan, &TxHeader, TxData, &TxMailbox);
-    }
-    break;
-  
-  default:
-    break;
-  }
+  // TODO check return value of fifo add
+  fifo_add(RxFIFO, &NewMessage);
 }
 
 void HAL_CAN_ErrorCallback(CAN_HandleTypeDef *can) {
@@ -281,6 +111,10 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
   }
 
   NeedToUartActions = 1;
+}
+
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
+  
 }
 
 /* USER CODE END 0 */
@@ -315,10 +149,14 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_CAN_Init();
-  // MX_USART1_UART_Init();
+  MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
 
   PumpListInit(&Pumps, 16);
+  RxFIFO = fifo_create(64, sizeof(CANRxMessage));
+
+  UARTRxFIFO = fifo_create(64, sizeof(UART_Message));
+  UARTTxFIFO = fifo_create(64, sizeof(UART_Message));
 
   CAN_FilterTypeDef sFilterConfig;
   sFilterConfig.FilterBank = 0;
@@ -342,25 +180,8 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+
   HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
-  uint8_t Hello[] = "Hello\n";
-
-  while (Pumps.size == 0)
-  {
-    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
-    HAL_Delay(70);
-    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
-    HAL_Delay(1500);
-    // HAL_UART_Transmit(&huart1, Hello, sizeof(Hello), 100);
-  }
-
-  // CAN_TxHeaderTypeDef OperationHeader = CreateRotationOperationHeader(Pumps.List[0].Id);
-  // uint8_t OperationData[8] = {};
-  // CreateRotationOperationData(OperationData, FORWARD, 90, 6);
-  // HAL_Error = HAL_CAN_AddTxMessage(&hcan, &OperationHeader, OperationData, &TxMailbox);
-  // CreateRotationOperationData(OperationData, REVERSE, 90, 6);
-  // HAL_Error = HAL_CAN_AddTxMessage(&hcan, &OperationHeader, OperationData, &TxMailbox);
-  // HAL_Delay(500);
 
   int UART_INIT = 0;
 
@@ -370,37 +191,127 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
 
-    if (NeedToUartActions) {
-      NeedToUartActions = 0;
+  uint8_t Hello[] = "Hello!";
+  HAL_UART_Transmit(&huart1, Hello, sizeof(Hello), 500);
+  HAL_Delay(500);
 
-      if (!UART_INIT) {
-        MX_USART1_UART_Init();
-        UART_INIT = 1;
-      } else {
-        HAL_UART_DeInit(&huart1);
-        UART_INIT = 0;
+  if (!RxFIFO->storedbytes) {
+    continue;
+  }
+
+  CANRxMessage Message = {};
+  fifo_get(RxFIFO, &Message);
+  
+  switch (Message.RxData[0])
+  {
+  // Registration message
+  case REGISTRATION_REQUEST:
+    {
+      if (Message.Header.DLC != 2) {
+        break;
       }
 
-      // HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
-      // HAL_Delay(1500);
-      // HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
-      // HAL_Delay(1500);
+      struct Pump *Old = FindPump(&Pumps, Message.RxData[1]);
+      // If Pump already in list 
+      if (Old) {
+        Old->State = PUMP_ENABLE;
+        CAN_TxHeaderTypeDef TxHeader = CreateRegistrationResponseHeader(Old->Id);
+        uint8_t TxData[8] = {};
+        TxData[0] = REGISTRATION_SUCCESS; // Registration response code
+        HAL_Error = HAL_CAN_AddTxMessage(&hcan, &TxHeader, TxData, &TxMailbox);
+
+        break;
+      }
+
+      struct Pump New = {.Id = Message.RxData[1],
+                          .State = PUMP_ENABLE};  // Get Pump ID
+
+      // Create registration response header
+      CAN_TxHeaderTypeDef TxHeader = CreateRegistrationResponseHeader(New.Id);
+      uint8_t TxData[8] = {};
+      if (AddPump(&Pumps, New)) {
+        // Fill the CAN TxData
+        CreateRegistrationResponseData(TxData);
+      }
+      else {
+        CreateRegistrationDeclineData(TxData);
+      }
+
+      HAL_Error = HAL_CAN_AddTxMessage(&hcan, &TxHeader, TxData, &TxMailbox);
+      
+      break;
     }
+  // In case changing lock status it is need to clear pump OperationBuffer
+  case FORWARD_LOCK_REACHED: 
+    {
+      if (Message.Header.DLC != 1) {
+        break;
+      }
+      // If not registered
+      struct Pump *Pump = FindPump(&Pumps, Message.RxData[1]); 
+      if (!Pump) {
+        break;
+      }
 
+      Pump->State = PUMP_BLOCKED_FORWARD;
 
+      // Send clear data buffer command
+      CAN_TxHeaderTypeDef TxHeader = CreateClearDataBufferHeader(Message.RxData[1]);
+      uint8_t TxData[8] = {};
+      CreateClearDataBufferData(TxData);
+      HAL_Error = HAL_CAN_AddTxMessage(&hcan, &TxHeader, TxData, &TxMailbox);
+      
+      break;
+    }
+  case REVERSE_LOCK_REACHED: 
+    {
+      if (Message.Header.DLC != 1) {
+        break;
+      }
+      // If not registered
+      struct Pump *Pump = FindPump(&Pumps, Message.RxData[1]); 
+      if (!Pump) {
+        break;
+      }
 
+      Pump->State = PUMP_BLOCKED_REVERSE;
 
-  //   CAN_TxHeaderTypeDef StartCommand = CreateStartCommandHeader();
-  //   uint8_t TxData[8] = {};
-  //   HAL_Error = HAL_CAN_AddTxMessage(&hcan, &StartCommand, TxData, &TxMailbox);
+      // Send clear data buffer command
+      CAN_TxHeaderTypeDef TxHeader = CreateClearDataBufferHeader(Message.RxData[1]);
+      uint8_t TxData[8] = {};
+      CreateClearDataBufferData(TxData);
+      HAL_Error = HAL_CAN_AddTxMessage(&hcan, &TxHeader, TxData, &TxMailbox);
+    
+      break;
+    }
+  case REVERSE_LOCK_RELEASED:
+  case FORWARD_LOCK_RELEASED: 
+    {
+      if (Message.Header.DLC != 1) {
+        break;
+      }
+      // If not registered
+      struct Pump *Pump = FindPump(&Pumps, Message.RxData[1]); 
+      if (!Pump) {
+        break;
+      }
 
-  //   HAL_Delay(6000);
+      Pump->State = PUMP_ENABLE;
 
-  // CAN_TxHeaderTypeDef GarbageHeader = CreateRotationOperationHeader(102);
-  // uint8_t GarbageData[8] = {};
-  // CreateRotationOperationData(GarbageData, FORWARD, 90, 6);
-  // HAL_Error = HAL_CAN_AddTxMessage(&hcan, &GarbageHeader, GarbageData, &TxMailbox);
-  // HAL_Delay(2000);
+      // Send clear data buffer command
+      CAN_TxHeaderTypeDef TxHeader = CreateClearDataBufferHeader(Message.RxData[1]);
+      uint8_t TxData[8] = {};
+      CreateClearDataBufferData(TxData);
+      HAL_Error = HAL_CAN_AddTxMessage(&hcan, &TxHeader, TxData, &TxMailbox);
+    
+      break;
+    }
+  
+  default:
+    break;
+  }
+
+  fifo_discard(RxFIFO, 1, E_FIFO_FRONT);
   }
 
   PumpListFree(&Pumps);
