@@ -48,6 +48,15 @@ UART_Message CreateUARTReverseLockReleasedMessage(uint8_t DeviceId) {
     return Msg;
 }
 
+UART_Message CreateUARTMasterResponseMessage() {
+    UART_Message Msg = {.message_type = UART_MASTER_RESPONSE,
+                    .device_id = 0,                 
+                    .size = 0,                              
+                    .data = {}};
+
+    return Msg;
+}
+
 UART_Message GetUARTMessageFromBareData(uint8_t Data[sizeof(UART_Message)]) {
     UART_Message Msg = {};
     

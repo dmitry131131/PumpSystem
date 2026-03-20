@@ -27,6 +27,7 @@
 #include "BusConnectionConfig.h"
 #include "FIFO.h"
 #include "UART.h"
+#include "UARTRuntime.h"
 
 /* USER CODE END Includes */
 
@@ -57,6 +58,8 @@ uint32_t CAN_Error = 0;
 HAL_StatusTypeDef HAL_Error;
 fifo_t RxFIFO = NULL;
 
+UART_Message UARTRxTmpMessage = {};
+UART_Message UARTTxTmpMessage = {};
 fifo_t UARTRxFIFO = NULL;
 fifo_t UARTTxFIFO = NULL;
 
@@ -114,8 +117,24 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 }
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
-  
+  fifo_add(UARTRxFIFO, &UARTRxTmpMessage);
+
+  HAL_UART_Receive_IT(&huart1, (uint8_t*) &UARTRxTmpMessage, sizeof(UART_Message));
 }
+
+void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart) {
+  if (!fifo_is_empty(UARTTxFIFO)) {
+    // Pop already sent message from the TxFIFO
+    fifo_discard(UARTTxFIFO, 1, E_FIFO_FRONT);
+  }
+  if (fifo_is_empty(UARTTxFIFO)) {
+    return;
+  }
+
+  fifo_get(UARTTxFIFO, &UARTTxTmpMessage);
+  HAL_UART_Transmit_IT(&huart1, (uint8_t*) &UARTTxTmpMessage, sizeof(UART_Message));
+}
+
 
 /* USER CODE END 0 */
 
@@ -155,6 +174,7 @@ int main(void)
   PumpListInit(&Pumps, 16);
   RxFIFO = fifo_create(64, sizeof(CANRxMessage));
 
+  // Create UART FIFOs
   UARTRxFIFO = fifo_create(64, sizeof(UART_Message));
   UARTTxFIFO = fifo_create(64, sizeof(UART_Message));
 
@@ -185,16 +205,30 @@ int main(void)
 
   int UART_INIT = 0;
 
+  // Start receiving UART messages
+  HAL_UART_Receive_IT(&huart1, (uint8_t*) &UARTRxTmpMessage, sizeof(UART_Message));
+
   while (1)
   {
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
 
-  uint8_t Hello[] = "Hello!";
-  HAL_UART_Transmit(&huart1, Hello, sizeof(Hello), 500);
-  HAL_Delay(500);
+  // HAL_Delay(3000);
 
+  // UART_Message TxMsg = {};
+  // TxMsg.message_type = UART_DATA;
+  // TxMsg.device_id = 0;
+  // TxMsg.size = 1;
+  // TxMsg.data[0] = UART_MASTER_RESPONSE;
+  
+  // HAL_UART_Transmit(&huart1, (uint8_t*) &TxMsg, sizeof(UART_Message), 100);
+
+  // UART runtime
+  UARTRuntime(&huart1, UARTRxFIFO, UARTTxFIFO);
+
+  // TODO create CAN runtime function
+  // CAN runtime
   if (!RxFIFO->storedbytes) {
     continue;
   }

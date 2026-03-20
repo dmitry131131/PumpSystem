@@ -3,6 +3,8 @@
 
 UART_Message GetUARTMessageFromBareData(uint8_t Data[sizeof(UART_Message)]);
 
+UART_Message CreateUARTMasterResponseMessage();
+
 UART_Message CreateUARTDeviceOnlineMessage(uint8_t DeviceId);
 UART_Message CreateUARTDeviceOfflineMessage(uint8_t DeviceId);
 

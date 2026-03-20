@@ -6,11 +6,10 @@
 #include "CLI/CLI.hpp"
 #include "serial/serial.h"
 
+#include "UART.hpp"
 #include "PumpMonitor.hpp"
 
-// TODO split to files and functions
-
-int main(int argc, char** argv) {
+int main(int argc, char** argv) try {
 
     // Todo remove cli interface
     CLI::App app{"Pump system monitor"};
@@ -19,65 +18,33 @@ int main(int argc, char** argv) {
     std::string port_name = "/dev/ttyUSB0";
     unsigned baudrate = 115200;
 
-    app.add_option("-p,--port", port_name, "uart port");
+    app.add_option("-p,--port", port_name, "Uart port name");
     app.add_option("-b,--baud", baudrate, "Set uart baudrate");
 
     CLI11_PARSE(app, argc, argv);
     
-    try {
-        serial::Serial port;
+    AsyncSerial serial{port_name, baudrate, [&](const UART_Message& msg)->void {
 
-        // Serial settings
-        port.setPort(port_name);      
-        port.setBaudrate(baudrate);     
+        std::cout << "UART data received!\n";
+        std::cout << "Message type: " << static_cast<int>(msg.get_message_type()) << '\n';
+        std::cout << "Device id: " << static_cast<int>(msg.get_device_id()) << '\n';
+        std::cout << "Data size: " << static_cast<int>(msg.get_data_size()) << '\n';
+        std::cout << "Data type: " << static_cast<int>(msg.get_data_type()) << '\n';
+        std::cout << "Data: \n";
+        for (const auto I : msg.get_data()) {
+            std::cout << static_cast<int>(I) << '\n';
+        };
+        std::cout << std::endl;
+    }};
 
-        auto timeout = serial::Timeout::simpleTimeout(1000); // Set port timeout
-        port.setTimeout(timeout);
+    std::cout << "INFO: Create AsyncSerial successfully!" << std::endl;
 
-        // Open serial port
-        port.open();
-        if (!port.isOpen()) {
-            std::cerr << "Port opening error!\n";
-            return 1;
-        }
-        std::cout << "Port opened successfully!" << std::endl;
-
-
-        // // 4. Отправляем сообщение
-        // std::string tx_msg = "Hello STM32!";
-        // size_t bytes_written = port.write(tx_msg);
-        // std::cout << "Отправлено " << bytes_written << " байт: " << tx_msg << std::endl;
-
-        // Небольшая задержка, чтобы устройство успело ответить
-        std::this_thread::sleep_for(std::chrono::milliseconds(500));
-
-        // 5. Читаем ответ (все доступные на данный момент байты)
-
-        port.flush();
-        while (true) {
-            if (port.available() < 7) {
-                continue;
-            }
-
-            std::string rx_msg = port.read(7);
-            if (!rx_msg.empty()) {
-                std::cout << "Получено " << rx_msg.size() << " байт: " << rx_msg << std::endl;
-            } else {
-                std::cout << "Нет данных для чтения." << std::endl;
-            }
-        }
-        
-        // Close serial port
-        port.close();
-        std::cout << "Port " << port_name << " closed!" << std::endl;
-
-    } catch (const serial::IOException& e) {
-        std::cerr << "Input/output critical error: " << e.what() << std::endl;
-        return 1;
-    } catch (const serial::SerialException& e) {
-        std::cerr << "Serial port critical error: " << e.what() << std::endl;
-        return 1;
+    while (true) {
+        sleep(2);   // Sleep into 2 seconds
+        serial.send(UART_Message_Builder::create_master_registration_message());
     }
 
     return 0;
+} catch(const std::exception& e) {
+    std::cerr << "General error: " << e.what() << '\n';  
 }
