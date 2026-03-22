@@ -1,4 +1,5 @@
 #include "UART.hpp"
+#include "Pump.hpp"
 
 UART_Message::UART_Message(const std::vector<uint8_t> &dataVector) : UART_Message() {
     if (dataVector.size() < MESSAGE_SIZE) return;
@@ -26,7 +27,6 @@ std::vector<uint8_t> UART_Message::to_vector() const {
     return vector;
 }
 
-
 UART_Message UART_Message_Builder::create_master_registration_message() {
     return UART_Message{UART_Message::MessageType::UART_DATA,               // Message type
                         0,                                                  // Device ID    
@@ -35,11 +35,39 @@ UART_Message UART_Message_Builder::create_master_registration_message() {
                         {}};                                                // Data
 }
 
+UART_Message UART_Message_Builder::create_rotation_operation_message(unsigned DeviceId, const RotationInstruction &rotationInstruction) {
+    union {
+        float f;
+        uint8_t bytes[4];
+    } converter;
+
+    converter.f = rotationInstruction.degree_;
+    std::vector<uint8_t> data;
+    data.push_back(0); // TODO Opcode
+    data.push_back(static_cast<uint8_t>(rotationInstruction.direction_));
+    for (auto B : converter.bytes) {
+        data.push_back(B);
+    }
+    data.push_back(static_cast<uint8_t>(rotationInstruction.rpm_));
+
+    return UART_Message{UART_Message::MessageType::UART_DATA,               // Message type
+                        static_cast<uint8_t>(DeviceId),                     // Device ID    
+                        8,                                                  // Data size
+                        UART_Message::DataType::UART_DATA_PACKAGE,          // Data type
+                        data};  
+}
+
+UART_Message UART_Message_Builder::create_start_command_message() {
+    return UART_Message{UART_Message::MessageType::UART_COMMAND,        // Message type
+                    0,                                                  // Device ID    
+                    1,                                                  // Data size
+                    UART_Message::DataType::UART_COMMAND_START,         // Data type
+                    {}};  
+}
 
 
-AsyncSerial::AsyncSerial(const std::string& port_name, uint32_t baudrate,
-                std::function<void(const UART_Message&)> on_data_received) 
-            : running_(true), on_data_received_(on_data_received) {
+AsyncSerial::AsyncSerial(const std::string& port_name, uint32_t baudrate) 
+            : running_(true) {
 
     port_.setPort(port_name);   // open UART port
     port_.setBaudrate(baudrate);
@@ -65,12 +93,39 @@ AsyncSerial::~AsyncSerial() {
     if (port_.isOpen()) port_.close();
 }
 
-void AsyncSerial::send(const UART_Message &data) {
+void AsyncSerial::sendMessage(const UART_Message &data) {
     {
-        std::lock_guard<std::mutex> lock(queue_mutex_);
+        std::lock_guard<std::mutex> lock(write_queue_mutex_);
         write_queue_.push(data);
     }
     cv_.notify_one(); // write thread wake up
+}
+
+bool AsyncSerial::hasMessage() {
+    std::lock_guard<std::mutex> lock(read_queue_mutex_);
+
+    return !read_queue_.empty();
+}
+
+std::optional<UART_Message> AsyncSerial::getMessage() {
+    std::lock_guard<std::mutex> lock(read_queue_mutex_);
+
+    if (read_queue_.empty()) {
+        return std::nullopt;
+    }
+
+    std::optional<UART_Message> Tmp{read_queue_.front()};
+    read_queue_.pop();
+
+    return Tmp;
+}
+
+void AsyncSerial::popMessage() {
+    std::lock_guard<std::mutex> lock(read_queue_mutex_);
+
+    if (!read_queue_.empty()) {
+        read_queue_.pop();
+    }
 }
 
 void AsyncSerial::readerLoop() {
@@ -86,8 +141,9 @@ void AsyncSerial::readerLoop() {
                 std::vector<uint8_t> RxData;
             
                 size_t received = port_.read(RxData, UART_Message::MESSAGE_SIZE);
-                if (received == UART_Message::MESSAGE_SIZE && on_data_received_) {
-                    on_data_received_(UART_Message{RxData});
+                if (received == UART_Message::MESSAGE_SIZE) {
+                    std::lock_guard<std::mutex> lock(read_queue_mutex_);
+                    read_queue_.push(UART_Message{RxData});
                 }
             } else {
                 // Если данных нет, немного спим, чтобы не грузить процессор
@@ -109,7 +165,7 @@ void AsyncSerial::writerLoop() {
         UART_Message data;
 
         {
-            std::unique_lock<std::mutex> lock(queue_mutex_);
+            std::unique_lock<std::mutex> lock(write_queue_mutex_);
             cv_.wait(lock, [this] {
                 return !write_queue_.empty() || !running_;
             });

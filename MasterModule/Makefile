@@ -39,6 +39,7 @@ C_SOURCES =  \
 Core/Src/main.c \
 Core/Src/Device.c \
 Core/Src/BusConnection.c \
+Core/Src/CANRuntime.c \
 Core/Src/FIFO.c \
 Core/Src/UART.c \
 Core/Src/UARTRuntime.c \

@@ -34,6 +34,19 @@ CAN_TxHeaderTypeDef CreateStartCommandHeader() {
   return TxHeader;
 }
 
+CAN_TxHeaderTypeDef CreateStopCommandHeader() {
+  CAN_TxHeaderTypeDef TxHeader;
+
+  TxHeader.StdId = COMMAND_STOP;
+  TxHeader.ExtId = 0;
+  TxHeader.RTR = CAN_RTR_DATA;
+  TxHeader.IDE = CAN_ID_STD;
+  TxHeader.DLC = 0;
+  TxHeader.TransmitGlobalTime = 0;
+
+  return TxHeader;
+}
+
 CAN_TxHeaderTypeDef CreateRotationOperationHeader(uint32_t DeviceId) {
   CAN_TxHeaderTypeDef TxHeader;
 
@@ -47,7 +60,7 @@ CAN_TxHeaderTypeDef CreateRotationOperationHeader(uint32_t DeviceId) {
   return TxHeader;
 }
 
-void CreateRotationOperationData(uint8_t* TxData, enum RotationDirection direction, float degree, uint8_t time) {
+void CreateRotationOperationData(uint8_t* TxData, enum RotationDirection direction, float degree, uint8_t RPM) {
   union {
     float f;
     uint8_t bytes[4];
@@ -62,7 +75,7 @@ void CreateRotationOperationData(uint8_t* TxData, enum RotationDirection directi
     TxData[3 + i] = converter.bytes[i];
   }
 
-  TxData[7] = time;
+  TxData[7] = RPM;
 }
 
 CAN_TxHeaderTypeDef CreateClearDataBufferHeader(uint32_t DeviceId) {

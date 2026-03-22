@@ -16,10 +16,18 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/CPM.cmake)
 
 # find_package(GTest REQUIRED)    # TODO Fix to CPM code
 
+# Add CLI11 Lib
 CPMAddPackage(
     NAME CLI11
     GIT_REPOSITORY "https://github.com/CLIUtils/CLI11"
     VERSION 2.5.0
+)
+
+# Add webview Lib
+CPMAddPackage(
+    NAME webview
+    GIT_REPOSITORY "https://github.com/webview/webview.git"
+    GIT_TAG 0.12.0
 )
 
 # Download and build serial lib
@@ -41,8 +49,11 @@ target_include_directories(serial PUBLIC
     "${serial_SOURCE_DIR}/include"
 )
 
+# TODO check dependencies for webview
+# libgtk-4-dev libwebkitgtk-6.0-dev
+
 # Link Libraries
-target_link_libraries(${TARGET} PRIVATE CLI11::CLI11 serial)
+target_link_libraries(${TARGET} PRIVATE CLI11::CLI11 serial webview::core)
 
 # Include directory
 target_include_directories(${TARGET} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/../Include)
@@ -56,7 +67,7 @@ target_compile_options(${TARGET} PUBLIC
 )
 
 # Link options
-target_link_options(${TARGET} PRIVATE -lpthread -lstdc++fs
+target_link_options(${TARGET} PRIVATE -lpthread -lstdc++fs 
     $<$<CONFIG:DEBUG>: -fsanitize=address>
 )
 

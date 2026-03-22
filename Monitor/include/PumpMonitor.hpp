@@ -4,61 +4,26 @@
 #include <variant>
 #include <unordered_map>
 #include <optional>
+#include <mutex>
 
-enum class PumpStatus {
-    PUMP_ONLINE,
-    PUMP_OFFLINE
-};
-
-struct RotationInstruction {
-    enum class Direction {
-        FORWARD,
-        REVERSE
-    } direction_;    // Rotation direction
-
-    float degree_;   // Rotation degree
-    unsigned rpm_;   // RPM 
-
-    RotationInstruction(Direction direction, float degree, unsigned rpm) : direction_(direction),
-                                                                           degree_(degree),
-                                                                           rpm_(rpm) {}
-};
-
-struct WaitingInstruction {
-    unsigned time_; // Waiting time in ms
-
-    WaitingInstruction(unsigned time) : time_(time) {}
-};
-
-using Instruction = std::variant<RotationInstruction, WaitingInstruction>;
-
-
-
-
-
-class Pump {
-    unsigned id_ = 0;
-    PumpStatus status_ = PumpStatus::PUMP_OFFLINE;
-    std::vector<Instruction> instructions_;
-
-public:
-    Pump(unsigned id, PumpStatus status = PumpStatus::PUMP_OFFLINE) : id_(id), status_(status) {}
-
-    bool operator== (const Pump& rhs) {
-        return id_ == rhs.id_;
-    }
-
-    
-
-
-};
+#include "UART.hpp"
+#include "Pump.hpp"
 
 class PumpMonitor {
-    std::unordered_map<unsigned, Pump> Pumps;
-    
+    std::unordered_map<unsigned, Pump> pumps_;
+    std::mutex pumps_mutex_;
+
 public:
     PumpMonitor() = default;
 
-    bool registerPump(const Pump& pump);
-    std::optional<Pump> getPump(unsigned id);
+    bool registerDevice(const Pump& pump);
+    std::optional<Pump> getDevice(unsigned id);
+    bool hasDevice(unsigned id);
+
+    std::mutex& getMutex() {return pumps_mutex_;}
+
+    auto begin() {return pumps_.begin();}
+    auto cbegin() {return pumps_.cbegin();}
+    auto end() {return pumps_.end();}
+    auto cend() {return pumps_.cend();}
 };

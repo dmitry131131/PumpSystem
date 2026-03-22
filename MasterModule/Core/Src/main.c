@@ -28,6 +28,7 @@
 #include "FIFO.h"
 #include "UART.h"
 #include "UARTRuntime.h"
+#include "CANRuntime.h"
 
 /* USER CODE END Includes */
 
@@ -56,8 +57,9 @@ UART_HandleTypeDef huart1;
 uint32_t TxMailbox = 0;
 uint32_t CAN_Error = 0;
 HAL_StatusTypeDef HAL_Error;
-fifo_t RxFIFO = NULL;
+fifo_t CANRxFIFO = NULL;
 
+int RegisteredByMonitor = 0;  // TODO bool
 UART_Message UARTRxTmpMessage = {};
 UART_Message UARTTxTmpMessage = {};
 fifo_t UARTRxFIFO = NULL;
@@ -97,7 +99,7 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *can) {
   }
 
   // TODO check return value of fifo add
-  fifo_add(RxFIFO, &NewMessage);
+  fifo_add(CANRxFIFO, &NewMessage);
 }
 
 void HAL_CAN_ErrorCallback(CAN_HandleTypeDef *can) {
@@ -123,16 +125,16 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 }
 
 void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart) {
-  if (!fifo_is_empty(UARTTxFIFO)) {
-    // Pop already sent message from the TxFIFO
-    fifo_discard(UARTTxFIFO, 1, E_FIFO_FRONT);
-  }
-  if (fifo_is_empty(UARTTxFIFO)) {
-    return;
-  }
+  // if (!fifo_is_empty(UARTTxFIFO)) {
+  //   // Pop already sent message from the TxFIFO
+  //   fifo_discard(UARTTxFIFO, 1, E_FIFO_FRONT);
+  // }
+  // if (fifo_is_empty(UARTTxFIFO)) {
+  //   return;
+  // }
 
-  fifo_get(UARTTxFIFO, &UARTTxTmpMessage);
-  HAL_UART_Transmit_IT(&huart1, (uint8_t*) &UARTTxTmpMessage, sizeof(UART_Message));
+  // fifo_get(UARTTxFIFO, &UARTTxTmpMessage);
+  // HAL_UART_Transmit_IT(&huart1, (uint8_t*) &UARTTxTmpMessage, sizeof(UART_Message));
 }
 
 
@@ -172,7 +174,7 @@ int main(void)
   /* USER CODE BEGIN 2 */
 
   PumpListInit(&Pumps, 16);
-  RxFIFO = fifo_create(64, sizeof(CANRxMessage));
+  CANRxFIFO = fifo_create(64, sizeof(CANRxMessage));
 
   // Create UART FIFOs
   UARTRxFIFO = fifo_create(64, sizeof(UART_Message));
@@ -214,138 +216,18 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
 
-  // HAL_Delay(3000);
-
-  // UART_Message TxMsg = {};
-  // TxMsg.message_type = UART_DATA;
-  // TxMsg.device_id = 0;
-  // TxMsg.size = 1;
-  // TxMsg.data[0] = UART_MASTER_RESPONSE;
-  
-  // HAL_UART_Transmit(&huart1, (uint8_t*) &TxMsg, sizeof(UART_Message), 100);
-
-  // UART runtime
-  UARTRuntime(&huart1, UARTRxFIFO, UARTTxFIFO);
-
-  // TODO create CAN runtime function
-  // CAN runtime
-  if (!RxFIFO->storedbytes) {
-    continue;
-  }
-
-  CANRxMessage Message = {};
-  fifo_get(RxFIFO, &Message);
-  
-  switch (Message.RxData[0])
-  {
-  // Registration message
-  case REGISTRATION_REQUEST:
-    {
-      if (Message.Header.DLC != 2) {
-        break;
-      }
-
-      struct Pump *Old = FindPump(&Pumps, Message.RxData[1]);
-      // If Pump already in list 
-      if (Old) {
-        Old->State = PUMP_ENABLE;
-        CAN_TxHeaderTypeDef TxHeader = CreateRegistrationResponseHeader(Old->Id);
-        uint8_t TxData[8] = {};
-        TxData[0] = REGISTRATION_SUCCESS; // Registration response code
-        HAL_Error = HAL_CAN_AddTxMessage(&hcan, &TxHeader, TxData, &TxMailbox);
-
-        break;
-      }
-
-      struct Pump New = {.Id = Message.RxData[1],
-                          .State = PUMP_ENABLE};  // Get Pump ID
-
-      // Create registration response header
-      CAN_TxHeaderTypeDef TxHeader = CreateRegistrationResponseHeader(New.Id);
-      uint8_t TxData[8] = {};
-      if (AddPump(&Pumps, New)) {
-        // Fill the CAN TxData
-        CreateRegistrationResponseData(TxData);
-      }
-      else {
-        CreateRegistrationDeclineData(TxData);
-      }
-
-      HAL_Error = HAL_CAN_AddTxMessage(&hcan, &TxHeader, TxData, &TxMailbox);
-      
-      break;
+    // Indicated Registration
+    if (RegisteredByMonitor) {
+      HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
     }
-  // In case changing lock status it is need to clear pump OperationBuffer
-  case FORWARD_LOCK_REACHED: 
-    {
-      if (Message.Header.DLC != 1) {
-        break;
-      }
-      // If not registered
-      struct Pump *Pump = FindPump(&Pumps, Message.RxData[1]); 
-      if (!Pump) {
-        break;
-      }
 
-      Pump->State = PUMP_BLOCKED_FORWARD;
+    // UART runtime
+    UARTRuntime(&huart1, &hcan, UARTRxFIFO, UARTTxFIFO);
 
-      // Send clear data buffer command
-      CAN_TxHeaderTypeDef TxHeader = CreateClearDataBufferHeader(Message.RxData[1]);
-      uint8_t TxData[8] = {};
-      CreateClearDataBufferData(TxData);
-      HAL_Error = HAL_CAN_AddTxMessage(&hcan, &TxHeader, TxData, &TxMailbox);
-      
-      break;
-    }
-  case REVERSE_LOCK_REACHED: 
-    {
-      if (Message.Header.DLC != 1) {
-        break;
-      }
-      // If not registered
-      struct Pump *Pump = FindPump(&Pumps, Message.RxData[1]); 
-      if (!Pump) {
-        break;
-      }
-
-      Pump->State = PUMP_BLOCKED_REVERSE;
-
-      // Send clear data buffer command
-      CAN_TxHeaderTypeDef TxHeader = CreateClearDataBufferHeader(Message.RxData[1]);
-      uint8_t TxData[8] = {};
-      CreateClearDataBufferData(TxData);
-      HAL_Error = HAL_CAN_AddTxMessage(&hcan, &TxHeader, TxData, &TxMailbox);
-    
-      break;
-    }
-  case REVERSE_LOCK_RELEASED:
-  case FORWARD_LOCK_RELEASED: 
-    {
-      if (Message.Header.DLC != 1) {
-        break;
-      }
-      // If not registered
-      struct Pump *Pump = FindPump(&Pumps, Message.RxData[1]); 
-      if (!Pump) {
-        break;
-      }
-
-      Pump->State = PUMP_ENABLE;
-
-      // Send clear data buffer command
-      CAN_TxHeaderTypeDef TxHeader = CreateClearDataBufferHeader(Message.RxData[1]);
-      uint8_t TxData[8] = {};
-      CreateClearDataBufferData(TxData);
-      HAL_Error = HAL_CAN_AddTxMessage(&hcan, &TxHeader, TxData, &TxMailbox);
-    
-      break;
-    }
-  
-  default:
-    break;
-  }
-
-  fifo_discard(RxFIFO, 1, E_FIFO_FRONT);
+    // TODO Create CAN FIFO 
+    // TODO Handle CAN error and CAN bus-off situations 
+    // CAN runtime
+    CANRuntime(&hcan, CANRxFIFO);
   }
 
   PumpListFree(&Pumps);

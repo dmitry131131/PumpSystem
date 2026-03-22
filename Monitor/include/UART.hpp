@@ -10,6 +10,8 @@
 #include <string>
 #include <serial/serial.h>
 
+#include "Pump.hpp"
+
 class UART_Message final {
 public:
     static constexpr size_t MESSAGE_SIZE = 11;      // FIXME refactor 
@@ -19,7 +21,8 @@ public:
     };
 
     enum class DataType : uint8_t {
-        NO_DATA                    = 0x0,    // Use if message is command
+        UART_COMMAND_START         = 0x0,    // By monitor to master (start execution) 
+        UART_COMMAND_STOP          = 0x1,    // By monitor to master (stop execution)
 
         UART_MASTER_REGISTRATION   = 0x10,   // By monitor to master (use to find master module in COM port list)
         UART_MASTER_RESPONSE       = 0x11,   // By master to monitor after UART_MASTER_REGISTRATION receive
@@ -64,9 +67,9 @@ public:
 class UART_Message_Builder final {
 public:
     static UART_Message create_master_registration_message();
-
+    static UART_Message create_rotation_operation_message(unsigned DeviceId, const RotationInstruction &rotationInstruction);
+    static UART_Message create_start_command_message();
 };
-
 
 class AsyncSerial final {
 
@@ -79,19 +82,27 @@ std::thread reader_;        // Reader thread
 std::thread writer_;        // Writer thread
 std::atomic<bool> running_; // UART status
 
-std::queue<UART_Message> write_queue_;   
-std::mutex queue_mutex_;
+std::queue<UART_Message> write_queue_;
+std::queue<UART_Message> read_queue_;
+std::mutex write_queue_mutex_;
+std::mutex read_queue_mutex_;
 std::condition_variable cv_;
 
-std::function<void(const UART_Message&)> on_data_received_;
-
 public:
-    AsyncSerial(const std::string& port_name, uint32_t baudrate,
-                std::function<void(const UART_Message&)> on_data_received);
+    AsyncSerial(const std::string& port_name, uint32_t baudrate);
     ~AsyncSerial();
 
     // Async data sending method
-    void send(const UART_Message &data);
+    void sendMessage(const UART_Message &data);
+
+    // Has messages  in read queue
+    bool hasMessage();
+
+    // Get the front message
+    std::optional<UART_Message> getMessage();
+
+    // Remove the front message
+    void popMessage();
 
 private:
     // Reader loop: always read data from port 

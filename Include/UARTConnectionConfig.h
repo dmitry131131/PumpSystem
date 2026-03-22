@@ -7,8 +7,8 @@ typedef enum {
 } UART_Message_Type;
 
 typedef enum {
-    UART_COMMAND_START,
-    UART_COMMAND_STOP
+    UART_COMMAND_START = 0x0,
+    UART_COMMAND_STOP  = 0x1
 } UART_Command_Type;
 
 typedef enum {

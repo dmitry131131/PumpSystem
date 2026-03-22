@@ -774,5 +774,36 @@
    "build/UARTRuntime.o"
   ],
   "file": "Core/Src/UARTRuntime.c"
+ },
+ {
+  "directory": "/home/cybermeatball/Files/PumpSystem/MasterModule",
+  "arguments": [
+   "arm-none-eabi-gcc",
+   "-c",
+   "-mcpu=cortex-m3",
+   "-mthumb",
+   "-DUSE_HAL_DRIVER",
+   "-DSTM32F103xB",
+   "-I../Include",
+   "-ICore/Inc",
+   "-IDrivers/STM32F1xx_HAL_Driver/Inc",
+   "-IDrivers/STM32F1xx_HAL_Driver/Inc/Legacy",
+   "-IDrivers/CMSIS/Device/ST/STM32F1xx/Include",
+   "-IDrivers/CMSIS/Include",
+   "-Og",
+   "-Wall",
+   "-fdata-sections",
+   "-ffunction-sections",
+   "-g",
+   "-gdwarf-2",
+   "-MMD",
+   "-MP",
+   "-MFbuild/CANRuntime.d",
+   "-Wa,-a,-ad,-alms=build/CANRuntime.lst",
+   "Core/Src/CANRuntime.c",
+   "-o",
+   "build/CANRuntime.o"
+  ],
+  "file": "Core/Src/CANRuntime.c"
  }
 ]

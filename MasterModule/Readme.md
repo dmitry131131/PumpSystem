@@ -33,3 +33,9 @@ SWCLK ---> 9pin
 ```bash
     minicom -D /dev/ttyUSB0 -b 115200
 ```
+
+# UART standard
+TODO write UART standard
+
+# CAN standard
+TODO write CAN standard

@@ -16,6 +16,7 @@ enum PumpState {
 struct Pump {
   unsigned Id;
   enum PumpState State;
+  int MonitorNotified;  // TODO bool
 };
 
 struct PumpList {
