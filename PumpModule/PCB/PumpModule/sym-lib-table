@@ -1,0 +1,4 @@
+(sym_lib_table
+  (version 7)
+  (lib (name "PumpModuleSchemes")(type "KiCad")(uri "${KIPRJMOD}/PumpModuleSchemes.kicad_sym")(options "")(descr ""))
+)
