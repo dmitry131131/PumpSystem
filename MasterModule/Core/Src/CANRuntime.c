@@ -6,7 +6,7 @@ extern HAL_StatusTypeDef HAL_Error;
 extern uint32_t TxMailbox;
 extern struct PumpList Pumps;
 
-static void sendClearDataBufferMessage();
+static void sendClearDataBufferMessage(CAN_HandleTypeDef *hcan, uint32_t DeviceId);
 
 void CANRuntime(CAN_HandleTypeDef *hcan, fifo_t CANRxFIFO) {
   if (fifo_is_empty(CANRxFIFO)) {

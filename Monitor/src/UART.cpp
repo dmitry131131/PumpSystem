@@ -54,7 +54,15 @@ UART_Message UART_Message_Builder::create_rotation_operation_message(unsigned De
                         static_cast<uint8_t>(DeviceId),                     // Device ID    
                         8,                                                  // Data size
                         UART_Message::DataType::UART_DATA_PACKAGE,          // Data type
-                        data};  
+                        data};                                              // Data
+}
+
+UART_Message UART_Message_Builder::create_clear_data_buffer_message(unsigned DeviceId) {
+    return UART_Message{UART_Message::MessageType::UART_DATA,           // Message type
+                    static_cast<uint8_t>(DeviceId),                     // Device ID    
+                    1,                                                  // Data size
+                    UART_Message::DataType::UART_CLEAR_DATA_BUFFER,     // Data type
+                    {}};                                                // Data
 }
 
 UART_Message UART_Message_Builder::create_start_command_message() {
@@ -62,25 +70,62 @@ UART_Message UART_Message_Builder::create_start_command_message() {
                     0,                                                  // Device ID    
                     1,                                                  // Data size
                     UART_Message::DataType::UART_COMMAND_START,         // Data type
-                    {}};  
+                    {}};                                                // Data
 }
 
 
 AsyncSerial::AsyncSerial(const std::string& port_name, uint32_t baudrate) 
-            : running_(true) {
+            : running_(false) {
 
     port_.setPort(port_name);   // open UART port
     port_.setBaudrate(baudrate);
     port_.setTimeout(port_timeout_);
-    port_.open();
+}
 
-    if (!port_.isOpen()) {
-        throw std::runtime_error("Unable to open UART port");
+
+void AsyncSerial::setPortName(const std::string &portName) {
+    std::lock_guard<std::mutex> lock(port_mutex_); 
+
+    port_.setPort(portName);
+}
+
+void AsyncSerial::setPortBaudrate(unsigned baudrate) {
+    std::lock_guard<std::mutex> lock(port_mutex_); 
+
+    port_.setBaudrate(baudrate);
+}
+
+bool AsyncSerial::open() {
+    try {
+        port_.open();
+    } catch (const serial::SerialException &e) {
+        std::cerr << "SerialException: " << e.what() << '\n';
+        return false;
+    } catch (const serial::IOException &e) {
+        std::cerr << "IOException: " << e.what() << '\n';
+        return false;
     }
 
+    if (!port_.isOpen()) {
+        return false;
+    }
+
+    running_ = true;
     // Launch reader and writer thread
     reader_ = std::thread(&AsyncSerial::readerLoop, this);
     writer_ = std::thread(&AsyncSerial::writerLoop, this);
+
+    return true;
+}
+
+void AsyncSerial::close() {
+    running_ = false;
+    cv_.notify_all(); // writer wake up (if it waiting)
+
+    if (reader_.joinable()) reader_.join();
+    if (writer_.joinable()) writer_.join();
+
+    if (port_.isOpen()) port_.close();
 }
 
 AsyncSerial::~AsyncSerial() {

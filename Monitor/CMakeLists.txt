@@ -6,7 +6,10 @@ project(Monitor)
 set(TARGET Monitor)
 
 set(CMAKE_CXX_STANDARD 23)
-set(CMAKE_CXX_STANDARD_REQUIRED True)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# HTML file path (URL style)
+set(HTML_FILE "file://${CMAKE_CURRENT_SOURCE_DIR}/html/index.html")
 
 add_executable(${TARGET})
 # Enable testing
@@ -16,11 +19,20 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/CPM.cmake)
 
 # find_package(GTest REQUIRED)    # TODO Fix to CPM code
 
+find_package(Threads)
+
 # Add CLI11 Lib
 CPMAddPackage(
     NAME CLI11
     GIT_REPOSITORY "https://github.com/CLIUtils/CLI11"
     VERSION 2.5.0
+)
+
+# Add json lib
+CPMAddPackage(
+    NAME nlohmann_json
+    GIT_REPOSITORY "https://github.com/nlohmann/json.git"
+    VERSION 3.12.0
 )
 
 # Add webview Lib
@@ -53,7 +65,7 @@ target_include_directories(serial PUBLIC
 # libgtk-4-dev libwebkitgtk-6.0-dev
 
 # Link Libraries
-target_link_libraries(${TARGET} PRIVATE CLI11::CLI11 serial webview::core)
+target_link_libraries(${TARGET} PRIVATE CLI11::CLI11 serial webview::core nlohmann_json::nlohmann_json Threads::Threads)
 
 # Include directory
 target_include_directories(${TARGET} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/../Include)
@@ -66,8 +78,13 @@ target_compile_options(${TARGET} PUBLIC
     $<$<CONFIG:RELEASE>:-O3>
 )
 
-# Link options
-target_link_options(${TARGET} PRIVATE -lpthread -lstdc++fs 
+target_compile_definitions(${TARGET} PRIVATE 
+    HTML_FILE="${HTML_FILE}"
+)
+
+# TODO 
+# Link options 
+target_link_options(${TARGET} PRIVATE -lstdc++fs 
     $<$<CONFIG:DEBUG>: -fsanitize=address>
 )
 

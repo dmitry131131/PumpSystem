@@ -69,6 +69,7 @@ public:
     static UART_Message create_master_registration_message();
     static UART_Message create_rotation_operation_message(unsigned DeviceId, const RotationInstruction &rotationInstruction);
     static UART_Message create_start_command_message();
+    static UART_Message create_clear_data_buffer_message(unsigned DeviceId);
 };
 
 class AsyncSerial final {
@@ -91,6 +92,14 @@ std::condition_variable cv_;
 public:
     AsyncSerial(const std::string& port_name, uint32_t baudrate);
     ~AsyncSerial();
+
+    bool open();
+    void close();
+
+    void setPortName(const std::string &portName);
+    void setPortBaudrate(unsigned baudrate);
+
+    bool running() const {return running_;}
 
     // Async data sending method
     void sendMessage(const UART_Message &data);
