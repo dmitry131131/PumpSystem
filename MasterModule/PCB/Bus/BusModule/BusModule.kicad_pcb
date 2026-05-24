@@ -51,7 +51,7 @@
 		(capping no)
 		(filling no)
 		(pcbplotparams
-			(layerselection 0x00000000_00000000_55555555_5755f5ff)
+			(layerselection 0x00000000_00000000_55555555_55555570)
 			(plot_on_all_layers_selection 0x00000000_00000000_00000000_00000000)
 			(disableapertmacros no)
 			(usegerberextensions no)
@@ -63,7 +63,7 @@
 			(svgprecision 4)
 			(plotframeref no)
 			(mode 1)
-			(useauxorigin no)
+			(useauxorigin yes)
 			(pdf_front_fp_property_popups yes)
 			(pdf_back_fp_property_popups yes)
 			(pdf_metadata yes)
@@ -71,7 +71,7 @@
 			(dxfpolygonmode yes)
 			(dxfimperialunits yes)
 			(dxfusepcbnewfont yes)
-			(psnegative no)
+			(psnegative yes)
 			(psa4output no)
 			(plot_black_and_white yes)
 			(sketchpadsonfab no)
@@ -80,11 +80,11 @@
 			(sketchdnponfab yes)
 			(crossoutdnponfab yes)
 			(subtractmaskfromsilk no)
-			(outputformat 1)
+			(outputformat 4)
 			(mirror no)
-			(drillshape 1)
+			(drillshape 0)
 			(scaleselection 1)
-			(outputdirectory "")
+			(outputdirectory "Manufacturing/")
 		)
 	)
 	(footprint "TerminalBlock:TerminalBlock_MaiXu_MX126-5.0-02P_1x02_P5.00mm"
@@ -94,7 +94,7 @@
 		(descr "terminal block MaiXu MX126-5.0-02P, 2 pins, pitch 5mm, size 10.5x7.8mm, drill diameter 1.3mm, pad diameter 2.8mm, https://www.lcsc.com/datasheet/lcsc_datasheet_2309150913_MAX-MX126-5-0-03P-GN01-Cu-S-A_C5188435.pdf")
 		(tags "THT terminal block MaiXu MX126-5.0-02P pitch 5mm size 10.5x7.8mm drill 1.3mm pad 2.8mm")
 		(property "Reference" "POW_0"
-			(at 2.25 -5.12 90)
+			(at 2 -5.78 90)
 			(layer "F.SilkS")
 			(uuid "dbda7e0a-fd5b-41cd-a646-afcdcba5ac62")
 			(effects
@@ -513,12 +513,12 @@
 			)
 		)
 	)
-	(footprint "Connector_JST:JST_XH_B4B-XH-AM_1x04_P2.50mm_Vertical"
+	(footprint "Connector_JST:JST_XH_B4B-XH-A_1x04_P2.50mm_Vertical"
 		(layer "F.Cu")
 		(uuid "41aaf8aa-3922-4ce3-b18c-1e6414461228")
 		(at 84.613 78.212 90)
-		(descr "JST XH series connector, B4B-XH-AM, with boss (http://www.jst-mfg.com/product/pdf/eng/eXH.pdf)")
-		(tags "connector JST XH vertical boss")
+		(descr "JST XH series connector, B4B-XH-A (http://www.jst-mfg.com/product/pdf/eng/eXH.pdf)")
+		(tags "connector JST XH vertical")
 		(property "Reference" "Pump_1"
 			(at 3.75 -3.55 90)
 			(layer "F.SilkS")
@@ -629,7 +629,7 @@
 		)
 		(fp_line
 			(start -1.8 -0.2)
-			(end -1.8 1.14)
+			(end -1.8 2.75)
 			(stroke
 				(width 0.12)
 				(type solid)
@@ -658,8 +658,8 @@
 			(uuid "84818c70-a7a0-4a9e-b713-d82310a8d72f")
 		)
 		(fp_line
-			(start 3.75 2.75)
-			(end -0.74 2.75)
+			(start -1.8 2.75)
+			(end 3.75 2.75)
 			(stroke
 				(width 0.12)
 				(type solid)
@@ -764,13 +764,6 @@
 				)
 			)
 		)
-		(pad "" np_thru_hole circle
-			(at -1.6 2 90)
-			(size 1.2 1.2)
-			(drill 1.2)
-			(layers "*.Cu" "*.Mask")
-			(uuid "5e350101-6371-486b-9ec1-aec5c233aebb")
-		)
 		(pad "1" thru_hole roundrect
 			(at 0 0 90)
 			(size 1.7 1.95)
@@ -817,7 +810,7 @@
 			(uuid "667484b4-f5f4-4107-b44c-0ff537b0f46e")
 		)
 		(embedded_fonts no)
-		(model "${KICAD10_3DMODEL_DIR}/Connector_JST.3dshapes/JST_XH_B4B-XH-AM_1x04_P2.50mm_Vertical.step"
+		(model "${KICAD10_3DMODEL_DIR}/Connector_JST.3dshapes/JST_XH_B4B-XH-A_1x04_P2.50mm_Vertical.step"
 			(offset
 				(xyz 0 0 0)
 			)
@@ -836,7 +829,7 @@
 		(descr "JST XH series connector, B2B-XH-A (http://www.jst-mfg.com/product/pdf/eng/eXH.pdf)")
 		(tags "connector JST XH vertical")
 		(property "Reference" "CAN_0"
-			(at 1.25 -3.55 90)
+			(at 1.25 -4.2875 90)
 			(layer "F.SilkS")
 			(uuid "85c44227-1d6f-4cde-945f-6e6d66f4f016")
 			(effects
@@ -1116,12 +1109,12 @@
 			)
 		)
 	)
-	(footprint "Connector_JST:JST_XH_B4B-XH-AM_1x04_P2.50mm_Vertical"
+	(footprint "Connector_JST:JST_XH_B4B-XH-A_1x04_P2.50mm_Vertical"
 		(layer "F.Cu")
 		(uuid "68d92dbd-dfd9-4880-bb3c-e8b10a039462")
 		(at 92.6295 78.212 90)
-		(descr "JST XH series connector, B4B-XH-AM, with boss (http://www.jst-mfg.com/product/pdf/eng/eXH.pdf)")
-		(tags "connector JST XH vertical boss")
+		(descr "JST XH series connector, B4B-XH-A (http://www.jst-mfg.com/product/pdf/eng/eXH.pdf)")
+		(tags "connector JST XH vertical")
 		(property "Reference" "Pump_0"
 			(at 3.75 -3.55 90)
 			(layer "F.SilkS")
@@ -1232,7 +1225,7 @@
 		)
 		(fp_line
 			(start -1.8 -0.2)
-			(end -1.8 1.14)
+			(end -1.8 2.75)
 			(stroke
 				(width 0.12)
 				(type solid)
@@ -1261,8 +1254,8 @@
 			(uuid "b6bf7e8d-1459-409b-afd1-463f8198b331")
 		)
 		(fp_line
-			(start 3.75 2.75)
-			(end -0.74 2.75)
+			(start -1.8 2.75)
+			(end 3.75 2.75)
 			(stroke
 				(width 0.12)
 				(type solid)
@@ -1367,13 +1360,6 @@
 				)
 			)
 		)
-		(pad "" np_thru_hole circle
-			(at -1.6 2 90)
-			(size 1.2 1.2)
-			(drill 1.2)
-			(layers "*.Cu" "*.Mask")
-			(uuid "ecfef145-dfaf-4db7-8ac6-fe21e503a101")
-		)
 		(pad "1" thru_hole roundrect
 			(at 0 0 90)
 			(size 1.7 1.95)
@@ -1420,7 +1406,7 @@
 			(uuid "da4c834f-de6b-4235-bf13-791be9dc1635")
 		)
 		(embedded_fonts no)
-		(model "${KICAD10_3DMODEL_DIR}/Connector_JST.3dshapes/JST_XH_B4B-XH-AM_1x04_P2.50mm_Vertical.step"
+		(model "${KICAD10_3DMODEL_DIR}/Connector_JST.3dshapes/JST_XH_B4B-XH-A_1x04_P2.50mm_Vertical.step"
 			(offset
 				(xyz 0 0 0)
 			)
@@ -1439,7 +1425,7 @@
 		(descr "JST XH series connector, B2B-XH-A (http://www.jst-mfg.com/product/pdf/eng/eXH.pdf)")
 		(tags "connector JST XH vertical")
 		(property "Reference" "CAN_1"
-			(at 1.25 -3.55 90)
+			(at 1.25 -4.08 90)
 			(layer "F.SilkS")
 			(uuid "d7a1f469-ad79-4f26-885b-39b78fe724ec")
 			(effects
@@ -1726,7 +1712,7 @@
 		(descr "terminal block MaiXu MX126-5.0-02P, 2 pins, pitch 5mm, size 10.5x7.8mm, drill diameter 1.3mm, pad diameter 2.8mm, https://www.lcsc.com/datasheet/lcsc_datasheet_2309150913_MAX-MX126-5-0-03P-GN01-Cu-S-A_C5188435.pdf")
 		(tags "THT terminal block MaiXu MX126-5.0-02P pitch 5mm size 10.5x7.8mm drill 1.3mm pad 2.8mm")
 		(property "Reference" "POW_1"
-			(at 2.25 -7.984 90)
+			(at 2.25 -6.105 90)
 			(layer "F.SilkS")
 			(uuid "8a1472d3-50f8-45ba-babb-efd5e590825d")
 			(effects
@@ -2156,6 +2142,31 @@
 		(layer "F.Cu")
 		(uuid "539b88cf-2b75-4be1-8f24-83dbe9e0a4e2")
 	)
+	(gr_text "Bus v1.0"
+		(at 94 50 0)
+		(layer "B.Cu")
+		(uuid "156ddc7a-7a3a-444a-9c78-e64477cdbf63")
+		(effects
+			(font
+				(size 1.5 1.5)
+				(thickness 0.3)
+				(bold yes)
+			)
+			(justify left bottom mirror)
+		)
+	)
+	(gr_text "Bus v1.0"
+		(at 79 52 0)
+		(layer "F.SilkS")
+		(uuid "05407ace-55d3-473e-95c8-2e987b36c000")
+		(effects
+			(font
+				(size 3 3)
+				(thickness 0.4)
+			)
+			(justify left bottom)
+		)
+	)
 	(dimension
 		(type orthogonal)
 		(layer "User.1")
@@ -2182,7 +2193,7 @@
 			(extension_offset 0.5)
 			(keep_text_aligned yes)
 		)
-		(gr_text "42.5"
+		(gr_text "42,5"
 			(at 48.85 66.25 90)
 			(layer "User.1")
 			(uuid "417aabf1-93da-4c48-bcac-253f89c6fedd")
@@ -2220,7 +2231,7 @@
 			(extension_offset 0.5)
 			(keep_text_aligned yes)
 		)
-		(gr_text "32.5"
+		(gr_text "32,5"
 			(at 128.85 66.25 90)
 			(layer "User.1")
 			(uuid "43b76541-99b9-4888-a8ee-df4130017de5")
@@ -2341,36 +2352,12 @@
 		(uuid "c22dfc1f-6093-45f7-a46e-b79d703b71c7")
 	)
 	(segment
-		(start 84.613 70.712)
-		(end 84.613 69.0603)
+		(start 107.8415 55.5)
+		(end 92.6295 70.712)
 		(width 1.2)
 		(layer "B.Cu")
 		(net "+12V")
-		(uuid "00e02129-5c10-481b-8566-a5de76626c23")
-	)
-	(segment
-		(start 92.6295 70.712)
-		(end 92.6295 69.0603)
-		(width 1.2)
-		(layer "B.Cu")
-		(net "+12V")
-		(uuid "04bd0190-c970-43e9-851d-e684fa5e995f")
-	)
-	(segment
-		(start 106.1898 55.5)
-		(end 92.6295 69.0603)
-		(width 1.2)
-		(layer "B.Cu")
-		(net "+12V")
-		(uuid "350ee170-b74b-4a5b-b79e-ed074bea2d0a")
-	)
-	(segment
-		(start 83.1653 69.0603)
-		(end 84.613 69.0603)
-		(width 1.2)
-		(layer "B.Cu")
-		(net "+12V")
-		(uuid "401a0836-579a-4b64-8cd4-554a828a6bcd")
+		(uuid "4dc7c113-31f6-4cfe-b2b8-df74e2f57b06")
 	)
 	(segment
 		(start 109.22 55.5)
@@ -2379,14 +2366,6 @@
 		(layer "B.Cu")
 		(net "+12V")
 		(uuid "59c02d37-8155-4e07-8d00-951b26043722")
-	)
-	(segment
-		(start 69.105 55)
-		(end 83.1653 69.0603)
-		(width 1.2)
-		(layer "B.Cu")
-		(net "+12V")
-		(uuid "84447315-c683-4f8b-b204-4248c10ffb53")
 	)
 	(segment
 		(start 109.22 55.5)
@@ -2405,6 +2384,14 @@
 		(uuid "9ef18b8b-efa3-4dd6-b1f5-4cb0cecb5ad3")
 	)
 	(segment
+		(start 84.613 70.508)
+		(end 69.105 55)
+		(width 1.2)
+		(layer "B.Cu")
+		(net "+12V")
+		(uuid "a9a68777-a91f-42a0-a711-6f84a789e109")
+	)
+	(segment
 		(start 69.605 55.5)
 		(end 69.105 55)
 		(width 1.2)
@@ -2413,12 +2400,28 @@
 		(uuid "bf86aaf6-ae25-4938-90d1-9b1a45e0e415")
 	)
 	(segment
-		(start 105.3415 60.5)
+		(start 84.613 70.712)
+		(end 84.613 70.508)
+		(width 1.2)
+		(layer "B.Cu")
+		(net "+12V")
+		(uuid "d2acc9ec-84d4-4372-b80a-2d44aa2d3d0b")
+	)
+	(segment
+		(start 109.22 55.5)
+		(end 107.8415 55.5)
+		(width 1.2)
+		(layer "B.Cu")
+		(net "+12V")
+		(uuid "e44db132-2e4e-4e79-ba0b-883df6c5374f")
+	)
+	(segment
+		(start 96.508 73.212)
 		(end 92.6295 73.212)
 		(width 1.2)
 		(layer "B.Cu")
 		(net "GND")
-		(uuid "455b2d03-c161-4318-94a5-719899ab08be")
+		(uuid "362e30e9-2c2b-4f93-b3f0-7c283e86e101")
 	)
 	(segment
 		(start 92.6295 73.212)
@@ -2446,11 +2449,11 @@
 	)
 	(segment
 		(start 109.22 60.5)
-		(end 105.3415 60.5)
+		(end 96.508 73.212)
 		(width 1.2)
 		(layer "B.Cu")
 		(net "GND")
-		(uuid "a077a811-5f9c-40fe-ba13-472385cea6df")
+		(uuid "f48e415e-c78f-4264-883b-82ac21cdf3d2")
 	)
 	(segment
 		(start 92.6295 78.212)
@@ -2517,52 +2520,44 @@
 		(uuid "eef2089e-6a95-4f68-be89-33ff1149d094")
 	)
 	(segment
-		(start 92.6295 75.712)
-		(end 95.1295 73.212)
+		(start 103.75 73.5)
+		(end 109.4245 73.5)
 		(width 1.2)
 		(layer "B.Cu")
 		(net "/CAN_H")
-		(uuid "00d1985e-323a-41d4-8298-dd1eb80aeb2f")
+		(uuid "0d3c7d21-3333-43fb-9d51-b962deab284c")
 	)
 	(segment
-		(start 66.7203 76.7131)
-		(end 66.7203 73.27)
+		(start 97.288 75.712)
+		(end 97.326 75.75)
 		(width 1.2)
 		(layer "B.Cu")
 		(net "/CAN_H")
-		(uuid "02c339b4-eb52-4150-a29d-08657bd55898")
+		(uuid "496f3a13-8960-4d3b-babb-a050ffb408c9")
 	)
 	(segment
-		(start 109.7125 73.212)
-		(end 111.5684 75.0679)
+		(start 109.4245 73.5)
+		(end 109.7125 73.212)
 		(width 1.2)
 		(layer "B.Cu")
 		(net "/CAN_H")
-		(uuid "1939500c-a122-4cb5-b477-24033af2bab7")
+		(uuid "5ad82e28-d805-46fc-a673-20481405c4d0")
 	)
 	(segment
-		(start 71.484 81.4768)
-		(end 66.7203 76.7131)
+		(start 75.462 75.712)
+		(end 72.962 73.212)
 		(width 1.2)
 		(layer "B.Cu")
 		(net "/CAN_H")
-		(uuid "355e860a-679c-4a3f-bd0f-25aaa7f497b8")
+		(uuid "7928a555-8456-4924-9d04-9504f6ccebf3")
 	)
 	(segment
-		(start 66.7203 73.27)
-		(end 66.7783 73.212)
+		(start 84.613 75.712)
+		(end 75.462 75.712)
 		(width 1.2)
 		(layer "B.Cu")
 		(net "/CAN_H")
-		(uuid "4710d13d-fedb-47ca-b226-35efd995fe58")
-	)
-	(segment
-		(start 111.5684 77.5603)
-		(end 107.6519 81.4768)
-		(width 1.2)
-		(layer "B.Cu")
-		(net "/CAN_H")
-		(uuid "76626236-26fd-457f-a475-8547705bf591")
+		(uuid "7e16550b-5679-41e2-9bb2-3ce32711e70f")
 	)
 	(segment
 		(start 92.6295 75.712)
@@ -2573,36 +2568,36 @@
 		(uuid "81e3fb18-cb36-4a66-81f4-2da2d343a501")
 	)
 	(segment
-		(start 111.5684 75.0679)
-		(end 111.5684 77.5603)
+		(start 101.5 75.75)
+		(end 103.75 73.5)
 		(width 1.2)
 		(layer "B.Cu")
 		(net "/CAN_H")
-		(uuid "8403b2cf-aa87-413b-ae20-0a8c8fa69277")
+		(uuid "b08799c6-4b67-4f39-85ba-06ef180ede7e")
 	)
 	(segment
-		(start 95.1295 73.212)
-		(end 109.7125 73.212)
+		(start 92.6295 75.712)
+		(end 97.288 75.712)
 		(width 1.2)
 		(layer "B.Cu")
 		(net "/CAN_H")
-		(uuid "b749f420-0bba-4ffc-879f-4b4bbd05387b")
+		(uuid "bbfbbd7c-1fea-44b8-9e72-678ef0c74a82")
 	)
 	(segment
-		(start 68.58 73.212)
-		(end 66.7783 73.212)
+		(start 72.962 73.212)
+		(end 68.58 73.212)
 		(width 1.2)
 		(layer "B.Cu")
 		(net "/CAN_H")
-		(uuid "dcfd0261-89d4-45f3-a0ba-303a7539f8b5")
+		(uuid "c6089741-ce71-4484-a31c-ab7715d3c312")
 	)
 	(segment
-		(start 107.6519 81.4768)
-		(end 71.484 81.4768)
+		(start 97.326 75.75)
+		(end 101.5 75.75)
 		(width 1.2)
 		(layer "B.Cu")
 		(net "/CAN_H")
-		(uuid "f268a50d-b50c-4683-bb80-8520e002ecc6")
+		(uuid "ca57f0e8-6fde-4d41-b535-947f4f93e7f8")
 	)
 	(embedded_fonts no)
 )
