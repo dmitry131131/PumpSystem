@@ -60,13 +60,13 @@
           "hatch_smoothing_level": 0,
           "hatch_smoothing_value": 0.1,
           "hatch_thickness": 1.0,
-          "min_clearance": 0.5,
+          "min_clearance": 1.0,
           "min_island_area": 10.0,
           "min_thickness": 0.25,
           "pad_connection": 1,
           "remove_islands": 0,
-          "thermal_relief_gap": 0.5,
-          "thermal_relief_spoke_width": 0.5
+          "thermal_relief_gap": 0.6,
+          "thermal_relief_spoke_width": 0.8
         }
       },
       "diff_pair_dimensions": [
@@ -248,6 +248,10 @@
         },
         {
           "diameter": 1.0,
+          "drill": 0.8
+        },
+        {
+          "diameter": 1.2,
           "drill": 0.8
         },
         {
@@ -689,7 +693,7 @@
         "uuid": "150e9f54-47e0-4f84-8835-031955f8b7e5"
       }
     ],
-    "used_designators": "R1",
+    "used_designators": "R1-2,#PWR16,D2,RED_LED1,GREEN_LED1,RED1,GREEN1,PowerUnit1",
     "variants": []
   },
   "sheets": [
