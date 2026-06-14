@@ -1,0 +1,6 @@
+(fp_lib_table
+	(version 7)
+	(lib (name "MasterModuleCANFootprint") (type "KiCad") (uri "${KIPRJMOD}/MasterModuleCANFootprint.pretty") (options "") (descr ""))
+	(lib (name "STM32") (type "KiCad") (uri "${KIPRJMOD}/Kicad-STM32-master/Footprints") (options "") (descr ""))
+	(lib (name "Footprints") (type "KiCad") (uri "${KIPRJMOD}/Kicad-STM32-master/Footprints.pretty") (options "") (descr "") (disabled))
+)

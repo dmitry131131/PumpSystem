@@ -518,21 +518,21 @@
     "classes": [
       {
         "bus_width": 12,
-        "clearance": 0.2,
+        "clearance": 0.4,
         "diff_pair_gap": 0.25,
         "diff_pair_via_gap": 0.25,
-        "diff_pair_width": 0.2,
+        "diff_pair_width": 0.8,
         "line_style": 0,
-        "microvia_diameter": 0.3,
-        "microvia_drill": 0.1,
+        "microvia_diameter": 1.2,
+        "microvia_drill": 0.8,
         "name": "Default",
         "pcb_color": "rgba(0, 0, 0, 0.000)",
         "priority": 2147483647,
         "schematic_color": "rgba(0, 0, 0, 0.000)",
-        "track_width": 0.2,
+        "track_width": 1.2,
         "tuning_profile": "",
-        "via_diameter": 0.6,
-        "via_drill": 0.3,
+        "via_diameter": 1.2,
+        "via_drill": 0.8,
         "wire_width": 6
       }
     ],
@@ -671,7 +671,7 @@
         "uuid": "89bcae1c-869b-4d50-bb1c-9f3af534be5f"
       }
     ],
-    "used_designators": "A1",
+    "used_designators": "C1-6,J2-4,R1-3,#PWR3-15,D1-3,U2-4",
     "variants": []
   },
   "sheets": [
@@ -686,6 +686,10 @@
     [
       "0d69acf6-61ca-4a8a-b049-3f877942f987",
       "UART_galvanic_isolation"
+    ],
+    [
+      "8fc105ba-e92d-4dba-b984-731af1b75611",
+      "CAN"
     ]
   ],
   "text_variables": {},
