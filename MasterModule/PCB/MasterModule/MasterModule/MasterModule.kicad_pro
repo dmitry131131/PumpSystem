@@ -547,7 +547,7 @@
     "last_paths": {
       "idf": "",
       "netlist": "",
-      "plot": "../Manufacturing/",
+      "plot": "../Manufacturing v1.1/",
       "specctra_dsn": "",
       "vrml": ""
     },
@@ -671,7 +671,7 @@
         "uuid": "89bcae1c-869b-4d50-bb1c-9f3af534be5f"
       }
     ],
-    "used_designators": "U5,#PWR15-18,C7-8",
+    "used_designators": "",
     "variants": []
   },
   "sheets": [
