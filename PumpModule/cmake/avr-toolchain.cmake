@@ -1,0 +1,19 @@
+# avr-toolchain.cmake
+set(CMAKE_SYSTEM_NAME Generic)
+set(CMAKE_SYSTEM_PROCESSOR avr)
+
+# Укажите точный путь, если инструменты не в PATH
+set(TOOLCHAIN_PREFIX avr-)
+set(CMAKE_C_COMPILER   ${TOOLCHAIN_PREFIX}gcc)
+set(CMAKE_CXX_COMPILER ${TOOLCHAIN_PREFIX}g++)
+set(CMAKE_ASM_COMPILER ${TOOLCHAIN_PREFIX}as)
+set(CMAKE_AR           ${TOOLCHAIN_PREFIX}ar)
+set(CMAKE_OBJCOPY      ${TOOLCHAIN_PREFIX}objcopy)
+set(CMAKE_OBJDUMP      ${TOOLCHAIN_PREFIX}objdump)
+set(CMAKE_SIZE         ${TOOLCHAIN_PREFIX}size)
+
+# Искать библиотеки/заголовки только в целевой системе
+set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
+set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
+set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
+set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY)
