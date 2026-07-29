@@ -40,9 +40,12 @@ void setup() {
   pinMode(MS2_PIN,    OUTPUT);
   pinMode(MS3_PIN,    OUTPUT);
   pinMode(ENABLE_PIN, OUTPUT);
-  // Set indicator pin
-  pinMode(INDICATOR_PIN, OUTPUT);
-  digitalWrite(INDICATOR_PIN, LOW);
+  // Set indicator pins
+  pinMode(GREEN_INDICATOR_PIN, OUTPUT);
+  digitalWrite(GREEN_INDICATOR_PIN, LOW);
+
+  pinMode(RED_INDICATOR_PIN, OUTPUT);
+  digitalWrite(RED_INDICATOR_PIN, LOW);
   // Set safety switch pins
   pinMode(FORWARD_SWITCH_PIN, INPUT_PULLUP);
   attachPCINT(digitalPinToPCINT(FORWARD_SWITCH_PIN), SwitchInterrupt, CHANGE);
@@ -60,7 +63,7 @@ void setup() {
   // CAN configuration
   if(CANInitialization(mcp2515) == MCP2515::ERROR_OK) {
     registeredInCAN = true;
-    digitalWrite(INDICATOR_PIN, HIGH);
+    digitalWrite(GREEN_INDICATOR_PIN, HIGH);
   }
 }
 
