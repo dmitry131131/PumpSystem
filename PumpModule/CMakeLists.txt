@@ -6,32 +6,13 @@ project(PumpModule)
 set(TARGET PumpModule)
 set(TEST_TARGET PumpModuleTest)
 
-# Find compilers
-find_program(AVR_CC avr-gcc)
-find_program(AVR_CXX avr-g++)
-find_program(AVR_OBJCOPY avr-objcopy)
-find_program(AVR_SIZE avr-size)
-
-set(CMAKE_C_COMPILER ${AVR_CC})
-set(CMAKE_CXX_COMPILER ${AVR_CXX})
-set(CMAKE_OBJCOPY ${AVR_OBJCOPY})
-set(CMAKE_SIZE ${AVR_SIZE})
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 
-if(NOT AVR_CC OR NOT AVR_CXX)
-    message(FATAL_ERROR "AVR toolchain not found. Please install avr-gcc, avr-g++.")
-endif()
-
 add_executable(${TARGET})
-# add_executable(${TEST_TARGET})
-
-# Enable testing
-# enable_testing()
 
 # Install dependencies
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/CPM.cmake) 
-find_package(GTest REQUIRED)    # TODO Fix to CPM code
 
 # Add ArduinoCore lib
 CPMAddPackage(
@@ -69,6 +50,7 @@ target_compile_options(arduino_core PUBLIC
     -Os -Wall
 )
 target_link_libraries(arduino_core PUBLIC m)
+target_link_options(arduino_core PRIVATE -mmcu=atmega328p)
 
 # Add MCP2515 lib
 CPMAddPackage(
@@ -103,6 +85,7 @@ target_compile_options(mcp2515 PUBLIC
     -Os -Wall
 )
 target_link_libraries(mcp2515 PUBLIC m arduino_core)
+target_link_options(mcp2515 PRIVATE -mmcu=atmega328p)
 
 
 # Add pin change interrupt lib
@@ -138,6 +121,7 @@ target_compile_options(pin_change_interrupt PUBLIC
     -Os -Wall
 )
 target_link_libraries(pin_change_interrupt PUBLIC m arduino_core)
+target_link_options(pin_change_interrupt PRIVATE -mmcu=atmega328p)
 
 # Link Libraries
 target_link_libraries(${TARGET} PRIVATE arduino_core mcp2515 pin_change_interrupt)
