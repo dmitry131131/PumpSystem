@@ -533,7 +533,7 @@
         "diff_pair_via_gap": 0.25,
         "diff_pair_width": 2.0,
         "line_style": 0,
-        "microvia_diameter": 1.0,
+        "microvia_diameter": 1.5,
         "microvia_drill": 0.8,
         "name": "Default",
         "pcb_color": "rgba(0, 0, 0, 0.000)",
@@ -541,7 +541,7 @@
         "schematic_color": "rgba(0, 0, 0, 0.000)",
         "track_width": 1.4,
         "tuning_profile": "",
-        "via_diameter": 1.0,
+        "via_diameter": 1.5,
         "via_drill": 0.8,
         "wire_width": 6
       }
