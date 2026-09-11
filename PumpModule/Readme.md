@@ -17,7 +17,9 @@
 
 ## Uploading
 ```bash
-    # avrdude -v -patmega328p -c arduino -P/dev/ttyUSB0 -b57600 -D -Uflash:w:./build/Release/bin/PumpModule.hex:i
+    # avrdude -v -patmega328p -c arduino -P/dev/ttyUSB0 -b57600 -D -Uflash:w:./Release/bin/PumpModule.hex:i
 
-    avrdude -v -patmega328p -c arduino -P /dev/ttyUSB0 -b57600 -Uflash:w:./build/Release/bin/PumpModule.hex:i
+    avrdude -v -patmega328p -c arduino -P /dev/ttyUSB0 -b115200 -Uflash:w:./Release/bin/PumpModule.hex:i
 ```
+
+If uploading doesn't starts try to change baudrate from 115200 to 57600 
