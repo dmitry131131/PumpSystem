@@ -128,7 +128,7 @@ target_link_libraries(${TARGET} PRIVATE arduino_core mcp2515 pin_change_interrup
 
 # Include directory
 target_include_directories(${TARGET} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include 
-                                             ${CMAKE_CURRENT_SOURCE_DIR}/../Include)
+                                             ${CMAKE_CURRENT_SOURCE_DIR}/../../Include)
 
 # Compile options
 target_compile_definitions(${TARGET} PRIVATE
