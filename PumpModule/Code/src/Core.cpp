@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <string.h>
 #include "PinChangeInterrupt.h"
 #include "Config.hpp"
 #include "Rotation.hpp"
@@ -31,6 +32,12 @@ OperationBuffer opBuffer;
 
 // If need to send switch event to master
 bool switch_event = false;
+
+// Non-blocking wait state for WAITING operation.
+// Allows CAN messages (e.g. COMMAND_STOP) to be processed during waiting.
+bool waiting_active = false;
+unsigned long wait_start_time = 0;  // millis() when waiting started
+unsigned long wait_duration = 0;    // How long to wait (from WaitingParams.duration_ms)
 
 void setup() {
   // Set pins as output
@@ -76,6 +83,7 @@ void loop() {
   if (switch_event) {
     switch_event = false;
     status = WAIT_FOR_MESSAGE;
+    waiting_active = false;  // Reset waiting state
     MessageType switch_event_message_type;
 
     delay(50);
@@ -120,6 +128,7 @@ void loop() {
         // Disable driver (active LOW)
         digitalWrite(ENABLE_PIN, HIGH);
         status = WAIT_FOR_MESSAGE;
+        waiting_active = false;  // Reset waiting state
         break;
       case COMMAND_START:
         status = EXECUTE;
@@ -150,33 +159,52 @@ void loop() {
     switch (current_frame.data[0])
     {
     case DATA_PACKAGE: {
-      // Accept data package to operation buffer
-      union {
-        float f;
-        uint8_t bytes[4];
-      } converter;
-
-      RotationOperation operation;
+      // Create operation from CAN frame
+      Operation operation;
       operation.opCode = static_cast<OperationCode>(current_frame.data[1]);
-      operation.direction = static_cast<RotationDirection>(current_frame.data[2]);
-      for (size_t i = 0; i < sizeof(converter.bytes) / sizeof(uint8_t); ++i) {
-        converter.bytes[i] = current_frame.data[3 + i];
-      }
-      operation.degree = converter.f;
-      operation.RPM = current_frame.data[7];
-
-      if (opBuffer.OperationCount >= opBuffer.OperationCapacity) {
+      
+      switch (operation.opCode) {
+      case ROTATION: {
+        operation.params.rotation.direction = 
+          static_cast<RotationDirection>(current_frame.data[2]);
+        
+        union {
+          float f;
+          uint8_t bytes[4];
+        } converter;
+        
+        for (size_t i = 0; i < sizeof(converter.bytes) / sizeof(uint8_t); ++i) {
+          converter.bytes[i] = current_frame.data[3 + i];
+        }
+        operation.params.rotation.degree = converter.f;
+        operation.params.rotation.RPM = current_frame.data[7];
         break;
       }
-
-      opBuffer.operations[opBuffer.OperationCount] = operation;
-      opBuffer.OperationCount++;
+      case WAITING: {
+        memcpy(&operation.params.waiting.duration_ms,
+               &current_frame.data[2],
+               sizeof(unsigned long));
+        break;
+      }
+      default:
+        break;
+      }
+      
+      // Push operation to buffer
+      if (!opBuffer.push(operation)) {
+        // TODO: Buffer overflow handling
+        // - Stop execution of all commands
+        // - Notify master about error
+        // - Indicate error (red LED?)
+        // For now just ignore and stay in WAIT_FOR_MESSAGE
+        status = WAIT_FOR_MESSAGE;
+        break;
+      }
     }
       break;
 
     case CLEAR_DATA_BUFFER:
-      opBuffer.current_operation_num = 0;
-      opBuffer.OperationCount = 0;
+      opBuffer.clear();
       break;
 
     case ATTENDANCE_REQUEST:
@@ -192,30 +220,70 @@ void loop() {
   }
 
   case EXECUTE: {
-    if (opBuffer.current_operation_num >= opBuffer.OperationCount) {
-      opBuffer.current_operation_num = 0;
+    if (opBuffer.isEmpty()) {
       status = WAIT_FOR_MESSAGE;
+      break;
     }
 
-    RotationOperation &operation = opBuffer.operations[opBuffer.current_operation_num];
-    switch (operation.opCode)
+    Operation* operation = opBuffer.peek();
+    if (operation == nullptr) {
+      status = WAIT_FOR_MESSAGE;
+      break;
+    }
+
+    switch (operation->opCode)
     {
-    case ROTATION:
-      if (lock == FORWARD_LOCKED && operation.direction == FORWARD) {
+    case ROTATION: {
+      // If locked in this direction - transition to WAIT_FOR_MESSAGE
+      if (lock == FORWARD_LOCKED && 
+          operation->params.rotation.direction == FORWARD) {
+        status = WAIT_FOR_MESSAGE;
         break;
       }
-      if (lock == REVERSE_LOCKED && operation.direction == REVERSE) {
+      if (lock == REVERSE_LOCKED && 
+          operation->params.rotation.direction == REVERSE) {
+        status = WAIT_FOR_MESSAGE;
         break;
       }
 
-      rotate(operation.direction, operation.degree, operation.RPM);
-      break;
-    
-    default:
+      // Execute rotation
+      digitalWrite(RED_INDICATOR_PIN, HIGH);
+      rotate(
+        operation->params.rotation.direction,
+        operation->params.rotation.degree,
+        operation->params.rotation.RPM
+      );
+      digitalWrite(RED_INDICATOR_PIN, LOW);
+      
+      // Remove completed operation from buffer
+      opBuffer.pop();
       break;
     }
 
-    opBuffer.current_operation_num++;
+    case WAITING: {
+      if (!waiting_active) {
+        // Start waiting
+        waiting_active = true;
+        wait_start_time = millis();
+        wait_duration = operation->params.waiting.duration_ms;
+        break;  // Return to loop start — CAN processed next iteration
+      }
+
+      // Check if wait is done
+      if (millis() - wait_start_time >= wait_duration) {
+        waiting_active = false;
+        opBuffer.pop();  // Remove completed operation
+      }
+      // If not done — just break, next loop() iteration processes CAN first
+      break;
+    }
+
+    default:
+      // Unknown operation - skip it
+      opBuffer.pop();
+      break;
+    }
+
     break;
   }
   

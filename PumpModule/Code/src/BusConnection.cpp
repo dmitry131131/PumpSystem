@@ -53,6 +53,7 @@ MCP2515::ERROR CANInitialization(MCP2515& mcp2515) {
     bool registered = false;
     unsigned attempt = 0;
 
+    // Registration attempts cycle 
     while (attempt < MAX_REGISTRATION_RETRIES && !registered) {
         attempt++;
 
@@ -97,6 +98,9 @@ MCP2515::ERROR CANInitialization(MCP2515& mcp2515) {
 
     #undef CHECK_ERROR_CALL
 }
+
+// TODO create software message queue for input and output messages (for safety of mcp2515 buffers) 
+// Check mcp2515 output buffer before sending a message (to prevent copy of messages in cases master not in CAN natwork)
 
 MCP2515::ERROR SendAttendanceResponse(MCP2515 &mcp2515) {
     can_frame canMsg = {};

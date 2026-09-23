@@ -33,16 +33,39 @@ enum OperationCode {
     WAITING = 0x02
 };
 
-struct RotationOperation {
-    enum OperationCode opCode;
+// Old operation structures (commented out after refactoring)
+// struct RotationOperation {
+//     enum OperationCode opCode;
+//     enum RotationDirection direction;
+//     float degree;
+//     unsigned RPM;  // [2 - 16] RPM
+// };
+
+// struct WaitingOperation {
+//     enum OperationCode opCode;
+//     unsigned time;
+// };
+
+// Rotation operation parameters
+struct RotationParams {
     enum RotationDirection direction;
     float degree;
     unsigned RPM;  // [2 - 16] RPM
 };
 
-struct WaitingOperation {
+// Waiting operation parameters
+struct WaitingParams {
+    unsigned long duration_ms;
+};
+
+// Common structure for any operation
+struct Operation {
     enum OperationCode opCode;
-    unsigned time;
+    union {
+        RotationParams rotation;
+        WaitingParams waiting;
+        // TODO: MicrostepParams microstep;  // future extension
+    } params;
 };
 
 #endif
