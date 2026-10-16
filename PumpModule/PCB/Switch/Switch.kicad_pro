@@ -546,7 +546,7 @@
     "last_paths": {
       "idf": "",
       "netlist": "",
-      "plot": "Manufacturing/",
+      "plot": "Manufacturing/13_PCB_ON_BOARD/",
       "specctra_dsn": "",
       "vrml": ""
     },
