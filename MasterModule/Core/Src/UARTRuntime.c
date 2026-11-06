@@ -1,14 +1,7 @@
 #include "UARTRuntime.h"
 #include "BusConnection.h"
 #include "Device.h"
-
-
-extern UART_Message UARTTxTmpMessage;
-extern HAL_StatusTypeDef HAL_Error;
-extern uint32_t TxMailbox;
-extern int RegisteredByMonitor;
-
-extern struct PumpList Pumps;
+#include "State.h"
 
 static void RxRuntime(CAN_HandleTypeDef *hcan, fifo_t RxFIFO, fifo_t TxFIFO);    // Process Rx messages (RxFIFO -> CAN + UART)
 static void TxRuntime(UART_HandleTypeDef *huart, fifo_t TxFIFO);    // Process Tx messages (TxFIFO -> UART)

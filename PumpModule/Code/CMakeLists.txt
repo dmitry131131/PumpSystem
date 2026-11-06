@@ -1,0 +1,172 @@
+cmake_minimum_required(VERSION 4.1.0)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+project(PumpModule)
+
+set(TARGET PumpModule)
+set(TEST_TARGET PumpModuleTest)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED True)
+
+add_executable(${TARGET})
+
+# Install dependencies
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/CPM.cmake) 
+
+# Add ArduinoCore lib
+CPMAddPackage(
+    NAME ArduinoCore
+    GIT_REPOSITORY "https://github.com/arduino/ArduinoCore-avr.git"
+    GIT_TAG 1.8.7
+    DOWNLOAD_ONLY YES
+)
+message(STATUS "ArduinoCore-avr source dir: ${ArduinoCore_SOURCE_DIR}")
+
+# Compile ArduinoCore lib
+set(VARIANT "standard")  # directory variants/standard
+file(GLOB_RECURSE CORE_SOURCES
+    "${ArduinoCore_SOURCE_DIR}/cores/arduino/*.c"
+    "${ArduinoCore_SOURCE_DIR}/cores/arduino/*.cpp"
+    "${ArduinoCore_SOURCE_DIR}/libraries/SPI/src/*.c"
+    "${ArduinoCore_SOURCE_DIR}/libraries/SPI/src/*.cpp"
+)
+
+# Create Lib
+add_library(arduino_core STATIC ${CORE_SOURCES})
+target_include_directories(arduino_core PUBLIC
+    "${ArduinoCore_SOURCE_DIR}/cores/arduino"
+    "${ArduinoCore_SOURCE_DIR}/variants/${VARIANT}"
+    "${ArduinoCore_SOURCE_DIR}/libraries/SPI/src/"
+)
+
+# NOTE!!!
+# PUBLIC means that compile options and compile definitions shares to project includes this lib
+target_compile_definitions(arduino_core PUBLIC
+    F_CPU=16000000L
+)
+target_compile_options(arduino_core PUBLIC
+    -mmcu=atmega328p
+    -Os -Wall
+)
+target_link_libraries(arduino_core PUBLIC m)
+target_link_options(arduino_core PRIVATE -mmcu=atmega328p)
+
+# Add MCP2515 lib
+CPMAddPackage(
+    NAME arduino-mcp2515
+    GIT_REPOSITORY "https://github.com/autowp/arduino-mcp2515.git"
+    GIT_TAG v1.3.1
+    DOWNLOAD_ONLY YES
+)
+message(STATUS "ArduinoMCP2515 source dir: ${arduino-mcp2515_SOURCE_DIR}")
+
+# Compile MCP2515 lib
+file(GLOB_RECURSE MCP2515_SOURCES
+    "${arduino-mcp2515_SOURCE_DIR}/*.c"
+    "${arduino-mcp2515_SOURCE_DIR}/*.cpp"
+)
+
+# Create lib
+add_library(mcp2515 STATIC ${MCP2515_SOURCES})
+# ArduinoCore and SPI in dependency list
+target_include_directories(arduino_core PUBLIC
+    "${ArduinoCore_SOURCE_DIR}/cores/arduino"
+    "${ArduinoCore_SOURCE_DIR}/libraries/SPI/src"
+    "${ArduinoCore_SOURCE_DIR}/variants/${VARIANT}"
+    "${arduino-mcp2515_SOURCE_DIR}/"
+)
+
+target_compile_definitions(mcp2515 PUBLIC
+    F_CPU=16000000L
+)
+target_compile_options(mcp2515 PUBLIC
+    -mmcu=atmega328p
+    -Os -Wall
+)
+target_link_libraries(mcp2515 PUBLIC m arduino_core)
+target_link_options(mcp2515 PRIVATE -mmcu=atmega328p)
+
+
+# Add pin change interrupt lib
+CPMAddPackage(
+    NAME PinChangeInterrupt
+    GIT_REPOSITORY "https://github.com/NicoHood/PinChangeInterrupt.git"
+    GIT_TAG 1.2.9
+    DOWNLOAD_ONLY YES
+)
+message(STATUS "PinChangeInterrupt source dir: ${PinChangeInterrupt_SOURCE_DIR}")
+
+# Compile PinChangeInterrupt lib
+file(GLOB_RECURSE MCP2515_SOURCES
+    "${PinChangeInterrupt_SOURCE_DIR}/src/*.c"
+    "${PinChangeInterrupt_SOURCE_DIR}/src/*.cpp"
+)
+
+# Create lib
+add_library(pin_change_interrupt STATIC ${MCP2515_SOURCES})
+# ArduinoCore and SPI in dependency list
+target_include_directories(arduino_core PUBLIC
+    "${ArduinoCore_SOURCE_DIR}/cores/arduino"
+    "${ArduinoCore_SOURCE_DIR}/variants/${VARIANT}"
+    "${PinChangeInterrupt_SOURCE_DIR}/src/"
+)
+
+target_compile_definitions(pin_change_interrupt PUBLIC
+    F_CPU=16000000L
+    PCINT_API
+)
+target_compile_options(pin_change_interrupt PUBLIC
+    -mmcu=atmega328p
+    -Os -Wall
+)
+target_link_libraries(pin_change_interrupt PUBLIC m arduino_core)
+target_link_options(pin_change_interrupt PRIVATE -mmcu=atmega328p)
+
+# Link Libraries
+target_link_libraries(${TARGET} PRIVATE arduino_core mcp2515 pin_change_interrupt)
+
+# Include directory
+target_include_directories(${TARGET} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include 
+                                             ${CMAKE_CURRENT_SOURCE_DIR}/../../Include)
+
+# Compile options
+target_compile_definitions(${TARGET} PRIVATE
+    F_CPU=16000000L
+)
+target_compile_options(${TARGET} PRIVATE
+    -mmcu=atmega328p
+    -Os -Wall
+)
+# NOTE!!!
+# Important to add -mmcu=atmega328p into link options
+target_link_options(${TARGET} PRIVATE -mmcu=atmega328p)
+
+# Generate HEX file
+set(HEX_FILE $<TARGET_FILE:${TARGET}>.hex)
+add_custom_command(TARGET ${TARGET} POST_BUILD
+    COMMAND ${CMAKE_OBJCOPY} -O ihex -R .eeprom $<TARGET_FILE:${TARGET}> ${HEX_FILE}
+    COMMENT "Generating HEX file"
+)
+
+# Add upload target
+set(MCU "atmega328p")
+set(PROGRAMMER "arduino")
+set(BAUDRATE "115200")
+set(PORT "/dev/ttyUSB0" CACHE STRING "Serial port for upload")
+
+add_custom_target(upload
+    COMMAND ${AVRDUDE} -p ${MCU} -c ${PROGRAMMER} -P ${PORT} -b ${BAUDRATE} -D -U flash:w:${HEX_FILE}:i
+    DEPENDS ${HEX_FILE}
+    COMMENT "Uploading ${HEX_FILE} to Arduino (${PORT})..."
+)
+
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/src)
+
+# Add binary directory
+set_target_properties(${TARGET}
+                      PROPERTIES
+                      RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+
+install(TARGETS ${TARGET}
+        RUNTIME DESTINATION bin)

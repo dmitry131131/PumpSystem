@@ -1,10 +1,7 @@
 #include "CANRuntime.h"
 #include "BusConnection.h"
 #include "Device.h"
-
-extern HAL_StatusTypeDef HAL_Error;
-extern uint32_t TxMailbox;
-extern struct PumpList Pumps;
+#include "State.h"
 
 static void sendClearDataBufferMessage(CAN_HandleTypeDef *hcan, uint32_t DeviceId);
 
