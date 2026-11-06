@@ -6,6 +6,7 @@
 #include "BusConnection.hpp"
 #include "BusConnectionConfig.h"
 #include "OperationBuffer.hpp"
+#include "FloatConverter.hpp"
 
 void SwitchInterrupt();
 
@@ -168,15 +169,9 @@ void loop() {
         operation.params.rotation.direction = 
           static_cast<RotationDirection>(current_frame.data[2]);
         
-        union {
-          float f;
-          uint8_t bytes[4];
-        } converter;
-        
-        for (size_t i = 0; i < sizeof(converter.bytes) / sizeof(uint8_t); ++i) {
-          converter.bytes[i] = current_frame.data[3 + i];
-        }
-        operation.params.rotation.degree = converter.f;
+        // Используем FloatConverter для преобразования float в байты и обратно
+        float degree = FloatConverter::bytesToFloat(&current_frame.data[3]);
+        operation.params.rotation.degree = degree;
         operation.params.rotation.RPM = current_frame.data[7];
         break;
       }

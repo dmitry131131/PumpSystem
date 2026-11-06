@@ -62,8 +62,8 @@ struct WaitingParams {
 struct Operation {
     enum OperationCode opCode;
     union {
-        RotationParams rotation;
-        WaitingParams waiting;
+        struct RotationParams rotation;
+        struct WaitingParams waiting;
         // TODO: MicrostepParams microstep;  // future extension
     } params;
 };
