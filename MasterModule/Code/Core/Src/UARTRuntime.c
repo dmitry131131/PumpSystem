@@ -1,95 +1,109 @@
+#include <math.h>
+#include <string.h>
+
 #include "UARTRuntime.h"
 #include "BusConnection.h"
 #include "Device.h"
 #include "State.h"
 
-static void RxRuntime(CAN_HandleTypeDef *hcan, fifo_t RxFIFO, fifo_t TxFIFO);    // Process Rx messages (RxFIFO -> CAN + UART)
+static void RxRuntime(fifo_t CANTxFIFO, fifo_t RxFIFO, fifo_t TxFIFO);    // Process Rx messages (RxFIFO -> CAN + UART)
 static void TxRuntime(UART_HandleTypeDef *huart, fifo_t TxFIFO);    // Process Tx messages (TxFIFO -> UART)
 
-static void UARTCommandMessageHandler(CAN_HandleTypeDef *hcan, const UART_Message *RxMessage, fifo_t UARTTxFIFO);
-static void UARTDataMessageHandler(CAN_HandleTypeDef *hcan, const UART_Message *RxMessage, fifo_t UARTTxFIFO);
+static void UARTCommandMessageHandler(fifo_t CANTxFIFO, const UART_Message *RxMessage);
+static void UARTDataMessageHandler(fifo_t CANTxFIFO, const UART_Message *RxMessage, fifo_t UARTTxFIFO);
 
-void UARTRuntime(UART_HandleTypeDef *huart, CAN_HandleTypeDef *hcan, fifo_t UARTRxFIFO, fifo_t UARTTxFIFO) {
-    RxRuntime(hcan, UARTRxFIFO, UARTTxFIFO);
+void UARTRuntime(UART_HandleTypeDef *huart, fifo_t CANTxFIFO, fifo_t UARTRxFIFO, fifo_t UARTTxFIFO) {
+    RxRuntime(CANTxFIFO, UARTRxFIFO, UARTTxFIFO);
     TxRuntime(huart, UARTTxFIFO);
 
       // Check Pumps status and notify monitor if need
   if (RegisteredByMonitor) {
     for (size_t i = 0; i < Pumps.size; ++i) {
-      if (Pumps.List[i].MonitorNotified) {
+      struct Pump *Pump = &Pumps.List[i];
+      if (Pump->MonitorNotified) {
         continue; // Monitor already notified
       }
 
       UART_Message StatusMsg = {};
 
-      switch (Pumps.List[i].State)
+      switch (Pump->State)
       {
       case PUMP_ENABLE:
-        StatusMsg = CreateUARTDeviceOnlineMessage(Pumps.List[i].Id);
+        StatusMsg = CreateUARTDeviceOnlineMessage(Pump->Id);
         break;
       case PUMP_DISABLE:
-        StatusMsg = CreateUARTDeviceOfflineMessage(Pumps.List[i].Id);
+        StatusMsg = CreateUARTDeviceOfflineMessage(Pump->Id);
         break;
       case PUMP_BLOCKED_FORWARD:
-        StatusMsg = CreateUARTForwardLockReachedMessage(Pumps.List[i].Id);
+        StatusMsg = CreateUARTForwardLockReachedMessage(Pump->Id);
         break;
       case PUMP_BLOCKED_REVERSE:
-        StatusMsg = CreateUARTReverseLockReachedMessage(Pumps.List[i].Id);
+        StatusMsg = CreateUARTReverseLockReachedMessage(Pump->Id);
         break;
       
       default:
-        break;
+        continue;
       }
 
-      fifo_add(UARTTxFIFO, &StatusMsg);
-      Pumps.List[i].MonitorNotified = 1;
+      if (!fifo_add(UARTTxFIFO, &StatusMsg)) {
+        break;
+      }
+      Pump->MonitorNotified = 1;
     }
   }
 }
 
-static void RxRuntime(CAN_HandleTypeDef *hcan, fifo_t UARTRxFIFO, fifo_t UARTTxFIFO) {
-    if (fifo_is_empty(UARTRxFIFO)) {
+static void RxRuntime(fifo_t CANTxFIFO, fifo_t UARTRxFIFO, fifo_t UARTTxFIFO) {
+    UART_Message RxMessage = {};
+    uint32_t primask = __get_PRIMASK();
+    __disable_irq();
+    bool hasMessage = fifo_peek(UARTRxFIFO, &RxMessage);
+    __set_PRIMASK(primask);
+    if (!hasMessage) {
         return;
     }
 
-    UART_Message RxMessage = {};
-    fifo_get(UARTRxFIFO, &RxMessage);
+    bool isRegistration = RxMessage.message_type == UART_DATA && RxMessage.size >= 1 &&
+                          RxMessage.data[0] == UART_MASTER_REGISTRATION;
+    // Keep the request queued until its output queue has room.
+    if (fifo_is_full(isRegistration ? UARTTxFIFO : CANTxFIFO)) {
+        return;
+    }
+
+    // The RX IRQ only appends; the head still holds the message copied above.
+    primask = __get_PRIMASK();
+    __disable_irq();
+    bool removed = fifo_discard(UARTRxFIFO, 1, E_FIFO_FRONT);
+    __set_PRIMASK(primask);
+    if (!removed) {
+        return;
+    }
 
     switch ((UART_Message_Type) RxMessage.message_type)
     {
     case UART_DATA:
-        UARTDataMessageHandler(hcan, &RxMessage, UARTTxFIFO);
+        UARTDataMessageHandler(CANTxFIFO, &RxMessage, UARTTxFIFO);
         break;
     
     case UART_COMMAND:
-        UARTCommandMessageHandler(hcan, &RxMessage, UARTTxFIFO);
+        UARTCommandMessageHandler(CANTxFIFO, &RxMessage);
         break;
     default:
         break;
     }
-
-    // Pop already processed message from RxFIFO
-    fifo_discard(UARTRxFIFO, 1, E_FIFO_FRONT);
 }
 
 static void TxRuntime(UART_HandleTypeDef *huart, fifo_t UARTTxFIFO) {
-    if (!RegisteredByMonitor) {
-        return;
-    }
-    if (fifo_is_empty(UARTTxFIFO)) {
-        return;
-    }
-    if (huart->gState == HAL_UART_STATE_BUSY_TX) {  // TODO refactor huart State handling
+    if (!RegisteredByMonitor || huart->gState != HAL_UART_STATE_READY) {
         return;
     }
 
-    fifo_get(UARTTxFIFO, &UARTTxTmpMessage);
-    HAL_UART_Transmit_IT(huart, (uint8_t*) &UARTTxTmpMessage, sizeof(UART_Message));
-    // Pop already sent message from the TxFIFO
-    fifo_discard(UARTTxFIFO, 1, E_FIFO_FRONT);
+    if (fifo_get(UARTTxFIFO, &UARTTxTmpMessage)) {
+        HAL_UART_Transmit_IT(huart, (uint8_t*) &UARTTxTmpMessage, sizeof(UART_Message));
+    }
 }
 
-static void UARTDataMessageHandler(CAN_HandleTypeDef *hcan, const UART_Message *RxMessage, fifo_t UARTTxFIFO) {
+static void UARTDataMessageHandler(fifo_t CANTxFIFO, const UART_Message *RxMessage, fifo_t UARTTxFIFO) {
     if (RxMessage->size < 1) {
         return;
     }
@@ -101,38 +115,64 @@ static void UARTDataMessageHandler(CAN_HandleTypeDef *hcan, const UART_Message *
         UART_Message TxMsg = CreateUARTMasterResponseMessage();
 
         fifo_add(UARTTxFIFO, &TxMsg);
-        RegisteredByMonitor = 1;    // Registered by Monitor
+        RegisteredByMonitor = 1;
+        for (size_t i = 0; i < Pumps.size; ++i) {
+            Pumps.List[i].MonitorNotified = 0;
+        }
         break;
     }
 
     // Send data package to pump
     case UART_DATA_PACKAGE: {
-        if (!RegisteredByMonitor) {
+        if (!RegisteredByMonitor || RxMessage->size < 2 ||
+            RxMessage->size > sizeof(RxMessage->data)) {
             break;
         }
-        union {
-            float f;
-            uint8_t bytes[4];
-        } converter;
 
-        // 7 bytes data
-        // [1] - opCode
-        // [2] - Direction
-        // [3-6] - (float) degree
-        // [7] - RPM
+        switch (RxMessage->data[1]) {
+        case 0: // Existing Monitor versions send 0 for rotation.
+        case ROTATION: {
+            if (RxMessage->size != 8) {
+                break;
+            }
 
-        // TODO check opcode
+            const uint8_t direction = RxMessage->data[2];
+            const uint8_t rpm = RxMessage->data[7];
+            if ((direction != FORWARD && direction != REVERSE) || rpm < 2 || rpm > 16) {
+                break;
+            }
 
-        // Get degree
-        for (size_t i = 0; i < sizeof(converter.bytes) / sizeof(uint8_t); ++i) {
-            converter.bytes[i] = RxMessage->data[3 + i];
+            float degree;
+            memcpy(&degree, &RxMessage->data[3], sizeof(degree));
+            if (!isfinite(degree) || degree < 0.0f) {
+                break;
+            }
+
+            CANTxMessage Message = {.Header = CreateRotationOperationHeader(RxMessage->device_id)};
+            CreateRotationOperationData(Message.TxData, direction, degree, rpm);
+            fifo_add(CANTxFIFO, &Message);
+            break;
         }
 
-        CAN_TxHeaderTypeDef TxHeader = CreateRotationOperationHeader(RxMessage->device_id);
-        uint8_t TxData[8] = {};
-        CreateRotationOperationData(TxData, RxMessage->data[2], converter.f, RxMessage->data[7]);
-        HAL_Error = HAL_CAN_AddTxMessage(hcan, &TxHeader, TxData, &TxMailbox);
+        case WAITING:
+            // TODO: Define the UART payload and encode the CAN waiting operation.
+            break;
 
+        default:
+            break;
+        }
+        break;
+    }
+
+    case UART_START_EXECUTION: {
+        if (!RegisteredByMonitor || RxMessage->size != 1 ||
+            RxMessage->device_id == COMMAND_START || RxMessage->device_id == COMMAND_STOP) {
+            break;
+        }
+
+        CANTxMessage Message = {.Header = CreateStartExecutionHeader(RxMessage->device_id)};
+        CreateStartExecutionData(Message.TxData);
+        fifo_add(CANTxFIFO, &Message);
         break;
     }
 
@@ -142,10 +182,9 @@ static void UARTDataMessageHandler(CAN_HandleTypeDef *hcan, const UART_Message *
             break;
         }
 
-        CAN_TxHeaderTypeDef TxHeader = CreateClearDataBufferHeader(RxMessage->device_id);
-        uint8_t TxData[8] = {};
-        CreateClearDataBufferData(TxData);
-        HAL_Error = HAL_CAN_AddTxMessage(hcan, &TxHeader, TxData, &TxMailbox);
+        CANTxMessage Message = {.Header = CreateClearDataBufferHeader(RxMessage->device_id)};
+        CreateClearDataBufferData(Message.TxData);
+        fifo_add(CANTxFIFO, &Message);
         
         break;
     }
@@ -155,7 +194,7 @@ static void UARTDataMessageHandler(CAN_HandleTypeDef *hcan, const UART_Message *
     }
 }
 
-static void UARTCommandMessageHandler(CAN_HandleTypeDef *hcan, const UART_Message *RxMessage, fifo_t UARTTxFIFO) {
+static void UARTCommandMessageHandler(fifo_t CANTxFIFO, const UART_Message *RxMessage) {
     if (!RegisteredByMonitor) {
         return;
     }
@@ -166,17 +205,15 @@ static void UARTCommandMessageHandler(CAN_HandleTypeDef *hcan, const UART_Messag
     switch (RxMessage->data[0])
     {
     case UART_COMMAND_START: {
-        CAN_TxHeaderTypeDef StartCommand = CreateStartCommandHeader();
-        uint8_t TxData[8] = {};
-        HAL_Error = HAL_CAN_AddTxMessage(hcan, &StartCommand, TxData, &TxMailbox);
+        CANTxMessage Message = {.Header = CreateStartCommandHeader()};
+        fifo_add(CANTxFIFO, &Message);
 
         break;
     }
 
     case UART_COMMAND_STOP: {
-        CAN_TxHeaderTypeDef StopCommand = CreateStopCommandHeader();
-        uint8_t TxData[8] = {};
-        HAL_Error = HAL_CAN_AddTxMessage(hcan, &StopCommand, TxData, &TxMailbox);
+        CANTxMessage Message = {.Header = CreateStopCommandHeader()};
+        fifo_add(CANTxFIFO, &Message);
 
         break;
     }

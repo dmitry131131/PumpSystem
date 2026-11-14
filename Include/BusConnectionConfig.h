@@ -18,6 +18,7 @@ enum MessageType {
 
     DATA_PACKAGE = 0x20,
     CLEAR_DATA_BUFFER = 0x21,
+    START_EXECUTION = 0x22,  // Addressed start
 
     ATTENDANCE_REQUEST = 0x30,
     ATTENDANCE_RESPONSE = 0x31
@@ -26,6 +27,15 @@ enum MessageType {
 enum RotationDirection {
   REVERSE = 0,
   FORWARD = 1
+};
+
+/* ATTENDANCE_REQUEST: [type], addressed to the pump.
+   ATTENDANCE_RESPONSE: [type, pump ID, PumpState], addressed to master. */
+enum PumpState {
+    PUMP_ENABLE = 0,
+    PUMP_BLOCKED_FORWARD = 1,
+    PUMP_BLOCKED_REVERSE = 2,
+    PUMP_DISABLE = 3  /* Offline state tracked by the master. */
 };
 
 enum OperationCode {

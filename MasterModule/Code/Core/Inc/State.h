@@ -34,6 +34,7 @@ extern HAL_StatusTypeDef HAL_Error;
 
 /* Очередь принятых CAN-сообщений */
 extern fifo_t CANRxFIFO;
+extern fifo_t CANTxFIFO;
 
 /* ------------------------------- UART ------------------------------------ */
 

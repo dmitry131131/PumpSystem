@@ -14,62 +14,22 @@ void impuls(int microseconds) {
 }
 }
 
-// Fuction that enable rotation for the time miliseconds
-void rotation(RotationDirection direction, unsigned RPM, double time) {
-    digitalWrite(DIR_PIN, direction); // Set direction
-
-    unsigned long impuls_period = MINUTE / (RPM * STEPS_PER_REV * get_microsteping_coeff());
-    double current_time = 0;        // In miliseconds
-
-    digitalWrite(ENABLE_PIN, LOW);  // Enable driver
-
-    while (current_time < time) {
-        impuls(10);
-        delayMicroseconds(impuls_period);
-
-        current_time += static_cast<double>(impuls_period) / 1000;
-    }
-
-    digitalWrite(ENABLE_PIN, HIGH);  // Disable driver
-}
-
-void rotation(RotationDirection direction, unsigned RPM) {
-    digitalWrite(DIR_PIN, direction); // Set direction
-    unsigned long impuls_period = MINUTE / (RPM * STEPS_PER_REV * get_microsteping_coeff());
-    digitalWrite(ENABLE_PIN, LOW);  // Enable driver
-
-    while (true) {    
-        impuls(10);
-        delayMicroseconds(impuls_period - 10);
-    }
-
-    digitalWrite(ENABLE_PIN, HIGH);  // Disable driver
-}
-
-// Rotate with 6 RPM by degree
-void rotate(RotationDirection direction, double degree) {
-    digitalWrite(DIR_PIN, direction);   // Set direction
-    unsigned long impuls_period = MINUTE / (6 * STEPS_PER_REV * get_microsteping_coeff());
-    digitalWrite(ENABLE_PIN, LOW);  // Enable driver
-
-    size_t impuls_count = static_cast<unsigned>(degree * STEPS_PER_REV * get_microsteping_coeff() / 360);
-    for (size_t i = 0; i < impuls_count; ++i) {
-        impuls(10);
-        delayMicroseconds(impuls_period - 10);
-    }
-
-    digitalWrite(ENABLE_PIN, HIGH);  // Disable driver
-}
-
-void rotate(RotationDirection direction, double degree, unsigned RPM) {
+void rotate(RotationDirection direction, double degree, unsigned RPM, bool (*serviceCAN)()) {
     digitalWrite(DIR_PIN, direction);   // Set direction
     unsigned long impuls_period = MINUTE / (RPM * STEPS_PER_REV * get_microsteping_coeff());
     digitalWrite(ENABLE_PIN, LOW);  // Enable driver
 
     size_t impuls_count = static_cast<unsigned>(degree * STEPS_PER_REV * get_microsteping_coeff() / 360);
     for (size_t i = 0; i < impuls_count; ++i) {
+        unsigned long step_start = micros();
         impuls(10);
-        delayMicroseconds(impuls_period - 10);
+        if (serviceCAN && !serviceCAN()) {
+            break;
+        }
+        unsigned long elapsed = micros() - step_start;
+        if (elapsed < impuls_period) {
+            delayMicroseconds(impuls_period - elapsed);
+        }
     }
 
     digitalWrite(ENABLE_PIN, HIGH);  // Disable driver

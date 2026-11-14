@@ -12,27 +12,32 @@ void SwitchInterrupt();
 
 enum PumpStatus {
   WAIT_FOR_MESSAGE,
-  DATA_ACCEPTING,
   EXECUTE,
 } status;
 
-enum PumpLock {
-  NO_LOCKS = 0,
-  FORWARD_LOCKED = 1,
-  REVERSE_LOCKED = 2
-} lock;
+static PumpState pumpState = PUMP_ENABLE;
+
+static PumpState readPumpState() {
+  if (digitalRead(REVERSE_SWITCH_PIN) == LOW) {
+    return PUMP_BLOCKED_REVERSE;
+  }
+  if (digitalRead(FORWARD_SWITCH_PIN) == LOW) {
+    return PUMP_BLOCKED_FORWARD;
+  }
+  return PUMP_ENABLE;
+}
 
 MCP2515 mcp2515(CS_PIN);
-can_frame current_frame;
 bool registeredInCAN = false;
 
-// If need to read CAN message
-bool readMessage = false;
+static bool attendancePending = false;
+static bool switchNotificationPending = false;
+static MessageType switchNotification;
 
 OperationBuffer opBuffer;
 
 // If need to send switch event to master
-bool switch_event = false;
+volatile bool switch_event = false;
 
 // Non-blocking wait state for WAITING operation.
 // Allows CAN messages (e.g. COMMAND_STOP) to be processed during waiting.
@@ -68,11 +73,115 @@ void setup() {
   // Delay for all device initialization
   delay(2000);
 
+  // Report a switch that was already pressed when the pump powered on.
+  pumpState = readPumpState();
+
   // CAN configuration
   if(CANInitialization(mcp2515) == MCP2515::ERROR_OK) {
     registeredInCAN = true;
     digitalWrite(GREEN_INDICATOR_PIN, HIGH);
   }
+}
+
+namespace {
+
+bool serviceCAN() {
+  CANTxRuntime(mcp2515);
+  if (switch_event) {
+    return false;
+  }
+
+  can_frame frame;
+  if (ReadQueuedCANMessage(frame)) {
+    switch (frame.can_id) {
+
+    case COMMAND_STOP:
+      digitalWrite(ENABLE_PIN, HIGH);
+      status = WAIT_FOR_MESSAGE;
+      waiting_active = false;
+      return false;
+
+    case COMMAND_START:
+      status = EXECUTE;
+      break;
+
+    case MY_ID:
+      if (frame.can_dlc == 0) {
+        break;
+      }
+
+      switch (frame.data[0]) {
+      case START_EXECUTION:
+        if (frame.can_dlc == 1) {
+          status = EXECUTE;
+        }
+        break;
+
+      case ATTENDANCE_REQUEST:
+        if (frame.can_dlc == 1) {
+          attendancePending = true;
+        }
+        break;
+
+      case DATA_PACKAGE: {
+        status = WAIT_FOR_MESSAGE;
+        if (frame.can_dlc < 2) {
+          break;
+        }
+
+        Operation operation = {};
+        operation.opCode = static_cast<OperationCode>(frame.data[1]);
+        switch (operation.opCode) {
+        case ROTATION:
+          if (frame.can_dlc != 8) {
+            break;
+          }
+          operation.params.rotation.direction = static_cast<RotationDirection>(frame.data[2]);
+          operation.params.rotation.degree = FloatConverter::bytesToFloat(&frame.data[3]);
+          operation.params.rotation.RPM = frame.data[7];
+          opBuffer.push(operation);
+          break;
+
+        case WAITING: {
+          if (frame.can_dlc < 6) {
+            break;
+          }
+          uint32_t duration;
+          memcpy(&duration, &frame.data[2], sizeof(duration));
+          operation.params.waiting.duration_ms = duration;
+          opBuffer.push(operation);
+          break;
+        }
+
+        default:
+          break;
+        }
+        break;
+      }
+
+      case CLEAR_DATA_BUFFER:
+        opBuffer.clear();
+        waiting_active = false;
+        status = WAIT_FOR_MESSAGE;
+        break;
+
+      default:
+        break;
+      }
+      break;
+
+    default:
+      break;
+    }
+  }
+
+  if (attendancePending &&
+      QueueAttendanceResponse(pumpState)) {
+    attendancePending = false;
+  }
+  return !switch_event;
+}
+
 }
 
 void loop() {
@@ -85,134 +194,35 @@ void loop() {
     switch_event = false;
     status = WAIT_FOR_MESSAGE;
     waiting_active = false;  // Reset waiting state
-    MessageType switch_event_message_type;
-
     delay(50);
 
-    // If forward switch reached
-    if (!digitalRead(FORWARD_SWITCH_PIN)) {
-      // Disable driver (active LOW)
-      digitalWrite(ENABLE_PIN, HIGH);
-      lock = FORWARD_LOCKED;
-      switch_event_message_type = FORWARD_LOCK_REACHED;
-    } 
-
-    // If reverse stitch reached
-    if (!digitalRead(REVERSE_SWITCH_PIN)) {
-      // Disable driver (active LOW)
-      digitalWrite(ENABLE_PIN, HIGH);
-      lock = REVERSE_LOCKED;
-      switch_event_message_type = REVERSE_LOCK_REACHED;
-    }
-
-    // If forward switch released
-    if (digitalRead(FORWARD_SWITCH_PIN) && lock == FORWARD_LOCKED) {
-      lock = NO_LOCKS;
-      switch_event_message_type = FORWARD_LOCK_RELEASED;
-    }
-
-    // If reverse switch released
-    if (digitalRead(REVERSE_SWITCH_PIN) && lock == REVERSE_LOCKED) {
-      lock = NO_LOCKS;
-      switch_event_message_type = REVERSE_LOCK_RELEASED;
-    }
-
-    SendSwitchEventMessage(mcp2515, switch_event_message_type);
-  }
-
-  // Reading message from CAN
-  if (readMessage) {
-    if (mcp2515.readMessage(&current_frame) == MCP2515::ERROR_OK) {
-      switch (current_frame.can_id)
-      {
-      case COMMAND_STOP:
-        // Disable driver (active LOW)
-        digitalWrite(ENABLE_PIN, HIGH);
-        status = WAIT_FOR_MESSAGE;
-        waiting_active = false;  // Reset waiting state
-        break;
-      case COMMAND_START:
-        status = EXECUTE;
-        break;
-      case MY_ID:
-        status = DATA_ACCEPTING;
-        break;
-
-      default:
-        break;
+    PumpState newState = readPumpState();
+    if (newState != pumpState) {
+      MessageType event;
+      if (newState == PUMP_BLOCKED_FORWARD) {
+        event = FORWARD_LOCK_REACHED;
+      } else if (newState == PUMP_BLOCKED_REVERSE) {
+        event = REVERSE_LOCK_REACHED;
+      } else {
+        event = pumpState == PUMP_BLOCKED_FORWARD ? FORWARD_LOCK_RELEASED : REVERSE_LOCK_RELEASED;
       }
+      pumpState = newState;
+      switchNotification = event;
+      switchNotificationPending = true;
     }
   }
+
+  if (switchNotificationPending && QueueSwitchEventMessage(switchNotification)) {
+    switchNotificationPending = false;
+  }
+
+  serviceCAN();
 
   // Normal work
   switch (status)
   {
   case WAIT_FOR_MESSAGE:
-    // Do nothing
     break;
-  
-  case DATA_ACCEPTING: {
-    if (current_frame.can_dlc < 1) {
-      status = WAIT_FOR_MESSAGE;
-      break;
-    }
-    // DataTypes
-    switch (current_frame.data[0])
-    {
-    case DATA_PACKAGE: {
-      // Create operation from CAN frame
-      Operation operation;
-      operation.opCode = static_cast<OperationCode>(current_frame.data[1]);
-      
-      switch (operation.opCode) {
-      case ROTATION: {
-        operation.params.rotation.direction = 
-          static_cast<RotationDirection>(current_frame.data[2]);
-        
-        // Используем FloatConverter для преобразования float в байты и обратно
-        float degree = FloatConverter::bytesToFloat(&current_frame.data[3]);
-        operation.params.rotation.degree = degree;
-        operation.params.rotation.RPM = current_frame.data[7];
-        break;
-      }
-      case WAITING: {
-        memcpy(&operation.params.waiting.duration_ms,
-               &current_frame.data[2],
-               sizeof(unsigned long));
-        break;
-      }
-      default:
-        break;
-      }
-      
-      // Push operation to buffer
-      if (!opBuffer.push(operation)) {
-        // TODO: Buffer overflow handling
-        // - Stop execution of all commands
-        // - Notify master about error
-        // - Indicate error (red LED?)
-        // For now just ignore and stay in WAIT_FOR_MESSAGE
-        status = WAIT_FOR_MESSAGE;
-        break;
-      }
-    }
-      break;
-
-    case CLEAR_DATA_BUFFER:
-      opBuffer.clear();
-      break;
-
-    case ATTENDANCE_REQUEST:
-      SendAttendanceResponse(mcp2515);
-      break;
-    
-    default:
-      break;
-    }
-
-    status = WAIT_FOR_MESSAGE;
-    break;
-  }
 
   case EXECUTE: {
     if (opBuffer.isEmpty()) {
@@ -230,28 +240,24 @@ void loop() {
     {
     case ROTATION: {
       // If locked in this direction - transition to WAIT_FOR_MESSAGE
-      if (lock == FORWARD_LOCKED && 
+      if (pumpState == PUMP_BLOCKED_FORWARD &&
           operation->params.rotation.direction == FORWARD) {
         status = WAIT_FOR_MESSAGE;
         break;
       }
-      if (lock == REVERSE_LOCKED && 
+      if (pumpState == PUMP_BLOCKED_REVERSE &&
           operation->params.rotation.direction == REVERSE) {
         status = WAIT_FOR_MESSAGE;
         break;
       }
 
-      // Execute rotation
-      digitalWrite(RED_INDICATOR_PIN, HIGH);
-      rotate(
-        operation->params.rotation.direction,
-        operation->params.rotation.degree,
-        operation->params.rotation.RPM
-      );
-      digitalWrite(RED_INDICATOR_PIN, LOW);
-      
-      // Remove completed operation from buffer
+      // Keep a copy while CAN commands can modify the buffer during rotation.
+      RotationParams rotation = operation->params.rotation;
       opBuffer.pop();
+      digitalWrite(RED_INDICATOR_PIN, HIGH);
+      rotate(rotation.direction, rotation.degree, rotation.RPM, serviceCAN);
+      digitalWrite(RED_INDICATOR_PIN, LOW);
+
       break;
     }
 
@@ -285,10 +291,6 @@ void loop() {
   default:
     break;
   }
-}
-
-void CanInterrupt() {
-  readMessage = true;
 }
 
 void SwitchInterrupt() {

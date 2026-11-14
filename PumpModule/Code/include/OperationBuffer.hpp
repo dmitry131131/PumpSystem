@@ -6,7 +6,7 @@
 // After execution, operation is removed from buffer (pop)
 class OperationBuffer {
 private:
-    static constexpr unsigned CAPACITY = 32;  // Power of two for fast modulo
+    static constexpr unsigned CAPACITY = 32;
     
     Operation operations[CAPACITY];
     unsigned head = 0;      // Read index (for execution)

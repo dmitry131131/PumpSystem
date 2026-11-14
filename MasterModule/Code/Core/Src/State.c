@@ -13,6 +13,7 @@ uint32_t TxMailbox = 0;
 uint32_t CAN_Error = 0;
 HAL_StatusTypeDef HAL_Error;
 fifo_t CANRxFIFO = NULL;
+fifo_t CANTxFIFO = NULL;
 
 /* ------------------------------- UART ------------------------------------ */
 

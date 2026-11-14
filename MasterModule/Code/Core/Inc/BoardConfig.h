@@ -133,7 +133,8 @@
 /* Группировка приоритетов (NVIC_PRIORITYGROUP_4) выставляется внутри HAL_Init. */
 
 #define BOARD_NVIC_PRIO_CAN_RX    1U   /* USB_LP_CAN1_RX0_IRQn */
-#define BOARD_NVIC_PRIO_CAN_SCE   0U   /* CAN1_SCE_IRQn       */
+/* Both IRQs run HAL_CAN_IRQHandler() for CAN1 and must not preempt each other. */
+#define BOARD_NVIC_PRIO_CAN_SCE   BOARD_NVIC_PRIO_CAN_RX
 #define BOARD_NVIC_PRIO_UART      0U   /* USART1_IRQn         */
 #define BOARD_NVIC_PRIO_EXTI      BOARD_WAKEUP_NVIC_PRIO   /* EXTI15_10_IRQn      */
 

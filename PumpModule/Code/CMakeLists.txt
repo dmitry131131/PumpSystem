@@ -5,11 +5,12 @@ project(PumpModule)
 
 set(TARGET PumpModule)
 set(TEST_TARGET PumpModuleTest)
+set(FIFO_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../Common/FIFO")
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 
-add_executable(${TARGET})
+add_executable(${TARGET} "${FIFO_DIR}/FIFO.c")
 
 # Install dependencies
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/CPM.cmake) 
@@ -127,8 +128,11 @@ target_link_options(pin_change_interrupt PRIVATE -mmcu=atmega328p)
 target_link_libraries(${TARGET} PRIVATE arduino_core mcp2515 pin_change_interrupt)
 
 # Include directory
-target_include_directories(${TARGET} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include 
-                                             ${CMAKE_CURRENT_SOURCE_DIR}/../../Include)
+target_include_directories(${TARGET} PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../Include
+    "${FIFO_DIR}"
+)
 
 # Compile options
 target_compile_definitions(${TARGET} PRIVATE
@@ -137,10 +141,12 @@ target_compile_definitions(${TARGET} PRIVATE
 target_compile_options(${TARGET} PRIVATE
     -mmcu=atmega328p
     -Os -Wall
+    -ffunction-sections
 )
 # NOTE!!!
 # Important to add -mmcu=atmega328p into link options
-target_link_options(${TARGET} PRIVATE -mmcu=atmega328p)
+# Drop unused FIFO functions, including the heap-based constructor.
+target_link_options(${TARGET} PRIVATE -mmcu=atmega328p -Wl,--gc-sections)
 
 # Generate HEX file
 set(HEX_FILE $<TARGET_FILE:${TARGET}>.hex)

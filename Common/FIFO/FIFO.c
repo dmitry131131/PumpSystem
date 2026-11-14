@@ -23,7 +23,6 @@
 /*-------------------------------------------------------------*
  *		Private function prototypes			*
  *-------------------------------------------------------------*/
-static void fifo_copy_from(fifo_t, void *);
 static void fifo_copy_to(fifo_t, const void *);
 
 /*-------------------------------------------------------------*
@@ -86,13 +85,24 @@ bool fifo_add(fifo_t fifo, const void * item)
 
 bool fifo_get(fifo_t fifo, void * item)
 {
-	if (!fifo_is_empty(fifo)) {
-		fifo_copy_from(fifo, item);
-		fifo->storedbytes -= fifo->itemsize;
-		return true;
-	} else {
+	if (!fifo_peek(fifo, item)) {
 		return false;
 	}
+	fifo->readoffset += fifo->itemsize;
+	if (fifo->readoffset >= fifo->allocatedbytes) {
+		fifo->readoffset = 0;
+	}
+	fifo->storedbytes -= fifo->itemsize;
+	return true;
+}
+
+bool fifo_peek(fifo_t fifo, void * item)
+{
+	if (fifo_is_empty(fifo)) {
+		return false;
+	}
+	memcpy(item, fifo->itemspace + fifo->readoffset, fifo->itemsize);
+	return true;
 }
 
 bool fifo_is_full(fifo_t fifo)
@@ -127,15 +137,6 @@ bool fifo_discard(fifo_t fifo, uint16_t count, enum fifo_side side)
 		return true;
 	}
 	return false;
-}
-
-static void fifo_copy_from(fifo_t fifo, void * item)
-{
-	memcpy(item, fifo->itemspace + fifo->readoffset, fifo->itemsize);
-	fifo->readoffset += fifo->itemsize;
-	if (fifo->readoffset >= fifo->allocatedbytes) {
-		fifo->readoffset = 0;
-	}
 }
 
 static void fifo_copy_to(fifo_t fifo, const void *item)

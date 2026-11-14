@@ -4,4 +4,6 @@
 #include "UART.h"
 #include "FIFO.h"
 
-void CANRuntime(CAN_HandleTypeDef *hcan, fifo_t CANRxFIFO);
+void CANRuntime(fifo_t CANRxFIFO, fifo_t CANTxFIFO);
+void CANAttendanceRuntime(fifo_t CANTxFIFO);
+void CANTxRuntime(CAN_HandleTypeDef *hcan, fifo_t CANTxFIFO);

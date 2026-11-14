@@ -4,6 +4,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 project(MasterModule C ASM)
 
 set(TARGET MasterModule)
+set(FIFO_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../Common/FIFO")
 
 # ---------------------------------------------------------------- sources --
 # Прикладной код и служебные файлы. Новые файлы в Core/Src подхватываются
@@ -36,9 +37,24 @@ set(ASM_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/startup_stm32f103xb.s)
 # ------------------------------------------------------------------ target --
 add_executable(${TARGET}
     ${APP_SOURCES}
+    "${FIFO_DIR}/FIFO.c"
     ${HAL_SOURCES}
     ${ASM_SOURCES}
 )
+
+# clangd discovers the database next to the sources for either build preset.
+if(CMAKE_GENERATOR MATCHES "Ninja|Makefiles" AND
+   NOT CMAKE_CURRENT_BINARY_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+    add_custom_target(publish_compile_commands
+        COMMAND ${CMAKE_COMMAND}
+            "-DINPUT=${CMAKE_CURRENT_BINARY_DIR}/compile_commands.json"
+            "-DOUTPUT=${CMAKE_CURRENT_SOURCE_DIR}/compile_commands.json"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/publish-compile-commands.cmake"
+        COMMENT "Updating compile_commands.json for clangd"
+        VERBATIM
+    )
+    add_dependencies(${TARGET} publish_compile_commands)
+endif()
 
 # -------------------------------------------------------------- definitions --
 target_compile_definitions(${TARGET} PRIVATE
@@ -50,6 +66,7 @@ target_compile_definitions(${TARGET} PRIVATE
 target_include_directories(${TARGET} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/Core/Inc
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Include
+    "${FIFO_DIR}"
     ${CMAKE_CURRENT_SOURCE_DIR}/Drivers/STM32F1xx_HAL_Driver/Inc
     ${CMAKE_CURRENT_SOURCE_DIR}/Drivers/STM32F1xx_HAL_Driver/Inc/Legacy
     ${CMAKE_CURRENT_SOURCE_DIR}/Drivers/CMSIS/Device/ST/STM32F1xx/Include

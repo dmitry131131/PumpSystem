@@ -172,6 +172,9 @@ extern "C" {
 	 */
 	bool fifo_get(fifo_t fifo, void * item);
 
+	/** Copies the front item without removing it. Returns false if empty. */
+	bool fifo_peek(fifo_t fifo, void * item);
+
 	/**
 	 * @brief Checks if the FIFO is full.
 	 *

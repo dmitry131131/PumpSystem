@@ -1,22 +1,23 @@
 #ifndef DEVICE_H
 #define DEVICE_H
 
+#include <stdbool.h>
+#include <stdint.h>
+
+#include "BusConnectionConfig.h"
+
 enum DeviceType {
   PUMP,
   TEMPERATURE_CONTROLLER
-};
-
-enum PumpState {
-    PUMP_DISABLE,
-    PUMP_ENABLE,
-    PUMP_BLOCKED_FORWARD,
-    PUMP_BLOCKED_REVERSE
 };
 
 struct Pump {
   unsigned Id;
   enum PumpState State;
   int MonitorNotified;  // TODO bool
+  uint32_t LastAttendanceRequest;
+  bool AttendanceQueued;
+  bool AwaitingAttendance;
 };
 
 struct PumpList {

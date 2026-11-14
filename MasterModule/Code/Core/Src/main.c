@@ -35,10 +35,15 @@ int main(void)
   PumpListInit(&Pumps, 16);
 
   CANRxFIFO = fifo_create(64, sizeof(CANRxMessage));
+  CANTxFIFO = fifo_create(64, sizeof(CANTxMessage));
 
   // Create UART FIFOs
   UARTRxFIFO = fifo_create(64, sizeof(UART_Message));
   UARTTxFIFO = fifo_create(64, sizeof(UART_Message));
+
+  if (!CANRxFIFO || !CANTxFIFO || !UARTRxFIFO || !UARTTxFIFO) {
+    Error_Handler();
+  }
 
   /* Приём всех сообщений; отбор по MY_ID делается в колбэке. */
   CAN_FilterTypeDef sFilterConfig;
@@ -74,12 +79,13 @@ int main(void)
     }
 
     // UART runtime
-    UARTRuntime(&huart1, &hcan, UARTRxFIFO, UARTTxFIFO);
+    UARTRuntime(&huart1, CANTxFIFO, UARTRxFIFO, UARTTxFIFO);
 
-    // TODO Create CAN FIFO
     // TODO Handle CAN error and CAN bus-off situations
     // CAN runtime
-    CANRuntime(&hcan, CANRxFIFO);
+    CANRuntime(CANRxFIFO, CANTxFIFO);
+    CANTxRuntime(&hcan, CANTxFIFO);
+    CANAttendanceRuntime(CANTxFIFO);
   }
 
   PumpListFree(&Pumps);

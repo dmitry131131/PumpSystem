@@ -60,6 +60,19 @@ CAN_TxHeaderTypeDef CreateRotationOperationHeader(uint32_t DeviceId) {
   return TxHeader;
 }
 
+CAN_TxHeaderTypeDef CreateStartExecutionHeader(uint32_t DeviceId) {
+  CAN_TxHeaderTypeDef TxHeader = {0};
+  TxHeader.StdId = DeviceId;
+  TxHeader.RTR = CAN_RTR_DATA;
+  TxHeader.IDE = CAN_ID_STD;
+  TxHeader.DLC = 1;
+  return TxHeader;
+}
+
+void CreateStartExecutionData(uint8_t *TxData) {
+  TxData[0] = START_EXECUTION;
+}
+
 void CreateRotationOperationData(uint8_t* TxData, enum RotationDirection direction, float degree, uint8_t RPM) {
   union {
     float f;

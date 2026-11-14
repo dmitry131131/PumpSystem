@@ -25,7 +25,8 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *can)
                            NewMessage.RxData) != HAL_OK) {
     return;
   }
-  if (NewMessage.Header.StdId != MY_ID) {
+  if (NewMessage.Header.IDE != CAN_ID_STD || NewMessage.Header.RTR != CAN_RTR_DATA ||
+      NewMessage.Header.StdId != MY_ID) {
     return;
   }
   if (NewMessage.Header.DLC < 1) {

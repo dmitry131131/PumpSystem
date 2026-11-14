@@ -20,6 +20,9 @@ void CreateRegistrationDeclineData(uint8_t *TxData);
 CAN_TxHeaderTypeDef CreateStartCommandHeader();
 CAN_TxHeaderTypeDef CreateStopCommandHeader();
 
+CAN_TxHeaderTypeDef CreateStartExecutionHeader(uint32_t DeviceId);
+void CreateStartExecutionData(uint8_t *TxData);
+
 CAN_TxHeaderTypeDef CreateRotationOperationHeader(uint32_t DeviceId);
 void CreateRotationOperationData(uint8_t *TxData, enum RotationDirection direction, float degree, uint8_t RPM);
 
