@@ -693,7 +693,7 @@
         "uuid": "150e9f54-47e0-4f84-8835-031955f8b7e5"
       }
     ],
-    "used_designators": "R1-2,#PWR16,D2,RED_LED1,GREEN_LED1,RED1,GREEN1,PowerUnit1",
+    "used_designators": "",
     "variants": []
   },
   "sheets": [

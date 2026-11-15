@@ -25,6 +25,7 @@ typedef enum {
 
     UART_DATA_PACKAGE          = 0x40,   // Both sides with general data packets
     UART_CLEAR_DATA_BUFFER     = 0x41,   // By monitor to master if need to clear device data buffer 
+    UART_START_EXECUTION       = 0x42,   // By monitor to master to start the addressed pump
 } UART_Data_Type;
 
 typedef struct {

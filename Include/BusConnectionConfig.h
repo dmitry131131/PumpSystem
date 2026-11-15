@@ -18,6 +18,7 @@ enum MessageType {
 
     DATA_PACKAGE = 0x20,
     CLEAR_DATA_BUFFER = 0x21,
+    START_EXECUTION = 0x22,  // Addressed start
 
     ATTENDANCE_REQUEST = 0x30,
     ATTENDANCE_RESPONSE = 0x31
@@ -28,21 +29,53 @@ enum RotationDirection {
   FORWARD = 1
 };
 
+/* ATTENDANCE_REQUEST: [type], addressed to the pump.
+   ATTENDANCE_RESPONSE: [type, pump ID, PumpState], addressed to master. */
+enum PumpState {
+    PUMP_ENABLE = 0,
+    PUMP_BLOCKED_FORWARD = 1,
+    PUMP_BLOCKED_REVERSE = 2,
+    PUMP_DISABLE = 3  /* Offline state tracked by the master. */
+};
+
 enum OperationCode {
     ROTATION = 0x01,
     WAITING = 0x02
 };
 
-struct RotationOperation {
-    enum OperationCode opCode;
+// Old operation structures (commented out after refactoring)
+// struct RotationOperation {
+//     enum OperationCode opCode;
+//     enum RotationDirection direction;
+//     float degree;
+//     unsigned RPM;  // [2 - 16] RPM
+// };
+
+// struct WaitingOperation {
+//     enum OperationCode opCode;
+//     unsigned time;
+// };
+
+// Rotation operation parameters
+struct RotationParams {
     enum RotationDirection direction;
     float degree;
     unsigned RPM;  // [2 - 16] RPM
 };
 
-struct WaitingOperation {
+// Waiting operation parameters
+struct WaitingParams {
+    unsigned long duration_ms;
+};
+
+// Common structure for any operation
+struct Operation {
     enum OperationCode opCode;
-    unsigned time;
+    union {
+        struct RotationParams rotation;
+        struct WaitingParams waiting;
+        // TODO: MicrostepParams microstep;  // future extension
+    } params;
 };
 
 #endif
