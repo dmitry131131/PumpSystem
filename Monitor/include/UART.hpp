@@ -1,122 +1,61 @@
 #pragma once
 
-#include <iostream>
-#include <thread>
-#include <atomic>
-#include <queue>
-#include <mutex>
-#include <condition_variable>
-#include <functional>
+#include <array>
+#include <cstddef>
+#include <cstdint>
+#include <fstream>
+#include <optional>
+#include <span>
 #include <string>
+#include <string_view>
+#include <vector>
+
 #include <serial/serial.h>
 
-#include "Pump.hpp"
+#include "BusConnectionConfig.h"
+#include "UARTConnectionConfig.h"
 
-class UART_Message final {
+// Exchanges UART frames and writes frame and search events to monitor.log.
+class SerialTransport final {
 public:
-    static constexpr size_t MESSAGE_SIZE = 11;      // FIXME refactor 
-    enum class MessageType : uint8_t {
-        UART_COMMAND,
-        UART_DATA
-    };
+    // Returns a sorted list of unique serial port names eligible for automatic search.
+    static std::vector<std::string> listMasterCandidatePorts();
 
-    enum class DataType : uint8_t {
-        UART_COMMAND_START         = 0x0,    // By monitor to master (start execution) 
-        UART_COMMAND_STOP          = 0x1,    // By monitor to master (stop execution)
+    // Configures and opens the port, then discards any buffered input.
+    void open(const std::string& portName, std::uint32_t baudRate);
 
-        UART_MASTER_REGISTRATION   = 0x10,   // By monitor to master (use to find master module in COM port list)
-        UART_MASTER_RESPONSE       = 0x11,   // By master to monitor after UART_MASTER_REGISTRATION receive
+    // Closes the port and log file and discards any partial frame.
+    void close() noexcept;
 
-        UART_DEVICE_ONLINE         = 0x20,   // By master to monitor if device online
-        UART_DEVICE_OFFLINE        = 0x21,   // By master to monitor if device offline
-        
-        UART_FORWARD_LOCK_REACHED  = 0x30,   // By master to monitor if device reached forward lock
-        UART_FORWARD_LOCK_RELEASED = 0x31,   // By master to monitor if device released forward lock
-        UART_REVERSE_LOCK_REACHED  = 0x32,   // By master to monitor if device reached reverse lock
-        UART_REVERSE_LOCK_RELEASED = 0x33,   // By master to monitor if device released reverse lock
+    // Writes and logs a UART frame. Throws if the write is incomplete.
+    void send(const UART_Message& message);
 
-        UART_DATA_PACKAGE          = 0x40,   // Both sides with general data packets
-        UART_CLEAR_DATA_BUFFER     = 0x41,   // By monitor to master if need to clear device data buffer 
-    };
+    // Reads, logs, and validates a complete frame. Retains partial data for the next call.
+    std::optional<UART_Message> receive();
+
+    // Logs a search status with an optional port and error detail.
+    void logSearchEvent(std::string_view status, std::string_view port = {}, std::string_view detail = {});
 
 private:
-    MessageType message_type_;
-    uint8_t device_id_;
-    uint8_t data_size_;
-    DataType data_type_;
-    std::vector<uint8_t> data_;
+    // Opens the shared log in append mode if needed.
+    void openLog();
 
-public:
-    UART_Message() = default;
-    UART_Message(const std::vector<uint8_t> &dataVector);
-    UART_Message(MessageType message_type, uint8_t device_id, uint8_t data_size,
-                 DataType data_type, const std::vector<uint8_t> &data) :
-                 message_type_(message_type), device_id_(device_id), 
-                 data_size_(data_size), data_type_(data_type), data_(data) {}
+    // Flushes the completed log line and reports a write failure.
+    void finishLogLine();
 
-    std::vector<uint8_t> to_vector() const;
+    // Records the frame direction, decoded fields, and raw bytes.
+    void logFrame(std::string_view direction, const UART_Message& message,
+                  std::span<const std::uint8_t> bytes);
 
-    // Getters
-    MessageType get_message_type() const { return message_type_; }
-    uint8_t get_device_id() const { return device_id_; }
-    uint8_t get_data_size() const { return data_size_; }
-    DataType get_data_type() const { return data_type_; }
-    const std::vector<uint8_t>& get_data() const { return data_; }
+    serial::Serial port_;
+    std::ofstream log_;
+    std::array<std::uint8_t, sizeof(UART_Message)> incoming_{};
+    std::size_t received_ = 0;
 };
 
-class UART_Message_Builder final {
-public:
-    static UART_Message create_master_registration_message();
-    static UART_Message create_rotation_operation_message(unsigned DeviceId, const RotationInstruction &rotationInstruction);
-    static UART_Message create_start_command_message();
-    static UART_Message create_clear_data_buffer_message(unsigned DeviceId);
-};
+// Builds a UART data frame with a single message type byte.
+UART_Message uartDataMessage(std::uint8_t deviceId, UART_Data_Type type);
 
-class AsyncSerial final {
-
-serial::Timeout port_timeout_ = serial::Timeout::simpleTimeout(100);
-
-serial::Serial port_;       // UART port
-std::mutex port_mutex_;     // port_ access mutex
-
-std::thread reader_;        // Reader thread
-std::thread writer_;        // Writer thread
-std::atomic<bool> running_; // UART status
-
-std::queue<UART_Message> write_queue_;
-std::queue<UART_Message> read_queue_;
-std::mutex write_queue_mutex_;
-std::mutex read_queue_mutex_;
-std::condition_variable cv_;
-
-public:
-    AsyncSerial(const std::string& port_name, uint32_t baudrate);
-    ~AsyncSerial();
-
-    bool open();
-    void close();
-
-    void setPortName(const std::string &portName);
-    void setPortBaudrate(unsigned baudrate);
-
-    bool running() const {return running_;}
-
-    // Async data sending method
-    void sendMessage(const UART_Message &data);
-
-    // Has messages  in read queue
-    bool hasMessage();
-
-    // Get the front message
-    std::optional<UART_Message> getMessage();
-
-    // Remove the front message
-    void popMessage();
-
-private:
-    // Reader loop: always read data from port 
-    void readerLoop();
-
-    // Writing loop: waiting for the message in write queue and send it
-    void writerLoop();
-};
+// Encodes rotation direction, angle in degrees, and speed in RPM into a UART frame.
+UART_Message uartRotationMessage(std::uint8_t deviceId, RotationDirection direction,
+                                 float degrees, std::uint8_t rpm);

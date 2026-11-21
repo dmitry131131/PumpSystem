@@ -1,197 +1,439 @@
-// document.addEventListener('DOMContentLoaded', () => {
-// });
-const periodInput = document.getElementById('periodInput');
-const startButton = document.getElementById('startButton');
-const stopButton  = document.getElementById('stopButton');
+"use strict";
 
-// Отправка текста из поля ввода
-startButton.addEventListener('click', () => {
-    const period = parseInt(periodInput.value);
-    if (period) {
-        // Send period and start
-        window.onStartClick({period: period});
+const byId = (id) => document.getElementById(id);
+
+const connectForm = byId("connectForm");
+const portInput = byId("portNameInput");
+const connectButton = byId("sendPortNameBtn");
+const findMasterButton = byId("findMasterButton");
+const connectionStatus = byId("connectionStatus");
+const connectionError = byId("connectionError");
+const pumpRows = byId("pumpRows");
+const pumpListEmpty = byId("pumpListEmpty");
+const selectedPump = byId("selectedPump");
+const selectedTitle = byId("selectedPumpTitle");
+const selectedStatus = byId("selectedPumpStatus");
+const emptySelection = byId("emptySelection");
+const rotateForm = byId("rotateForm");
+const rotationFields = byId("rotationFields");
+const turnsInput = byId("turnsInput");
+const directionSelect = byId("directionSelect");
+const rotationFeedback = byId("rotationFeedback");
+const settingsRows = byId("settingsPumpRows");
+const settingsForm = byId("pumpSettingsForm");
+const settingsFields = byId("pumpSettingsFields");
+const pumpIdInput = byId("pumpIdInput");
+const pumpNameInput = byId("pumpNameInput");
+const pumpVolumeInput = byId("pumpVolumeInput");
+const applySettingsButton = byId("applyPumpSettings");
+const resetSettingsButton = byId("resetPumpSettings");
+const loadConfigurationButton = byId("loadConfigurationButton");
+const saveConfigurationButton = byId("saveConfigurationButton");
+const configurationFile = byId("configurationFile");
+const settingsFeedback = byId("settingsFeedback");
+
+const statusLabels = {
+    offline: "Нет связи",
+    online: "На связи",
+    forwardLocked: "Концевик спереди",
+    reverseLocked: "Концевик сзади",
+};
+
+const rows = new Map();
+const settingsRowItems = new Map();
+const settingsDrafts = new Map();
+let state;
+let selectedId = null;
+let settingsId = null;
+let connectionRequest = null;
+let submittingRotation = false;
+let settingsBusy = false;
+
+const tabs = Array.from(document.querySelectorAll('[role="tab"]'));
+
+function activateTab(tab) {
+    for (const item of tabs) {
+        const active = item === tab;
+        item.setAttribute("aria-selected", String(active));
+        item.tabIndex = active ? 0 : -1;
+        byId(item.getAttribute("aria-controls")).hidden = !active;
+    }
+}
+
+tabs.forEach((tab, index) => {
+    tab.addEventListener("click", () => activateTab(tab));
+    tab.addEventListener("keydown", (event) => {
+        const matchingTab = {
+            ArrowLeft: tabs[(index + tabs.length - 1) % tabs.length],
+            ArrowRight: tabs[(index + 1) % tabs.length],
+            Home: tabs[0],
+            End: tabs[tabs.length - 1],
+        }[event.key];
+        if (matchingTab) {
+            event.preventDefault();
+            activateTab(matchingTab);
+            matchingTab.focus();
+        }
+    });
+});
+
+function showConnectionError(message) {
+    connectionError.textContent = message;
+    connectionError.hidden = !message;
+}
+
+function showRotationFeedback(message, error = false) {
+    rotationFeedback.textContent = message;
+    rotationFeedback.classList.toggle("error", error);
+}
+
+function updateConnectControls() {
+    const connection = state?.connection;
+    const searching = connection === "searching";
+    const cancelling = connectionRequest === "cancel" || connection === "cancellingSearch";
+    portInput.disabled = connectButton.disabled = Boolean(connectionRequest) || connection !== "disconnected";
+    findMasterButton.disabled = Boolean(connectionRequest) || (connection !== "disconnected" && !searching);
+    connectButton.textContent = connectionRequest === "connect" || connection === "connecting"
+        ? "Подключение…"
+        : "Подключить";
+    findMasterButton.textContent = cancelling ? "Отмена…" : searching ? "Отменить поиск" : "Найти Master";
+}
+
+function pumpLabel(pump) {
+    return pump.name ? `${pump.name} · №${pump.id}` : `Насос ${pump.id}`;
+}
+
+function renderStatus(element, status) {
+    element.textContent = statusLabels[status];
+    element.dataset.status = status;
+}
+
+function updatePumpRows(pumps, list, items, select) {
+    for (const pump of pumps) {
+        let row = items.get(pump.id);
+        if (!row) {
+            const item = document.createElement("li");
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className = "pump-row";
+            const name = document.createElement("strong");
+            const status = document.createElement("span");
+            status.className = "status";
+            button.append(name, status);
+            button.addEventListener("click", () => select(pump.id));
+            item.append(button);
+            const nextPump = pumps.find((other) => other.id > pump.id && items.has(other.id));
+            list.insertBefore(item, nextPump ? items.get(nextPump.id).item : null);
+            row = { item, button, name, status };
+            items.set(pump.id, row);
+        }
+        row.name.textContent = pumpLabel(pump);
+        renderStatus(row.status, pump.status);
+    }
+}
+
+function selectManualPump(id) {
+    selectedId = id;
+    showRotationFeedback("");
+    renderSelection();
+}
+
+function renderSelection() {
+    const pump = state?.pumps.find((item) => item.id === selectedId);
+    selectedPump.hidden = !pump;
+    emptySelection.hidden = Boolean(pump);
+    for (const [id, row] of rows) {
+        row.button.setAttribute("aria-pressed", String(id === selectedId));
+    }
+    if (!pump) {
+        return;
+    }
+
+    selectedTitle.textContent = pumpLabel(pump);
+    renderStatus(selectedStatus, pump.status);
+    rotationFields.disabled = pump.status === "offline" || submittingRotation || Boolean(state.rotation?.pending);
+
+    const forward = directionSelect.options[0];
+    const reverse = directionSelect.options[1];
+    forward.disabled = pump.status === "forwardLocked";
+    reverse.disabled = pump.status === "reverseLocked";
+    if (forward.selected && forward.disabled) {
+        directionSelect.value = "reverse";
+    }
+    if (reverse.selected && reverse.disabled) {
+        directionSelect.value = "forward";
+    }
+
+    if (state.rotation?.pumpId === pump.id) {
+        showRotationFeedback(state.rotation.message, state.rotation.error);
+    }
+}
+
+window.renderMonitor = function (snapshot) {
+    if (!state) {
+        turnsInput.max = snapshot.maxTurns;
+        byId("turnsHint").textContent = `От 1 до ${snapshot.maxTurns} целых оборотов`;
+        pumpIdInput.min = snapshot.minPumpId;
+        pumpIdInput.max = snapshot.maxPumpId;
+    }
+    if (!state || snapshot.port !== state.port
+        || (snapshot.connection === "connected" && state.connection !== "connected")) {
+        portInput.value = snapshot.port;
+    }
+
+    if (state?.connection === "connected" && snapshot.connection === "disconnected") {
+        showRotationFeedback("");
+    }
+    state = snapshot;
+    updateConnectControls();
+    connectionStatus.textContent = {
+        disconnected: "Master не подключён",
+        connecting: "Ожидание ответа Master",
+        searching: state.searchPort ? `Поиск Master… ${state.searchPort}` : "Поиск Master…",
+        cancellingSearch: "Отмена поиска Master…",
+        connected: "Master подключён",
+    }[state.connection];
+    connectionStatus.dataset.status = state.connection;
+    showConnectionError(state.connectionError);
+
+    updatePumpRows(state.pumps, pumpRows, rows, selectManualPump);
+    pumpListEmpty.hidden = state.pumps.length > 0;
+    pumpListEmpty.textContent = state.connection === "connected"
+        ? "Ожидание данных о насосах."
+        : "Подключите Master или добавьте насос в настройках.";
+    renderSelection();
+
+    updatePumpRows(state.pumps, settingsRows, settingsRowItems, selectSettingsPump);
+    byId("settingsListEmpty").hidden = state.pumps.length > 0;
+    settingsId ??= state.pumps[0]?.id ?? null;
+    renderSettings();
+};
+
+function showSettingsFeedback(message, error = false) {
+    settingsFeedback.textContent = message;
+    settingsFeedback.classList.toggle("error", error);
+}
+
+function selectSettingsPump(id) {
+    settingsId = id;
+    showSettingsFeedback("");
+    renderSettings();
+}
+
+function settingsInputValues(pump) {
+    return { name: pump.name, volume: pump.volumePerTurnMicroliters?.toString() ?? "" };
+}
+
+function renderSettings() {
+    const disabled = !state || settingsBusy;
+    for (const control of [pumpIdInput, byId("addPumpButton"), settingsFields,
+                            loadConfigurationButton, saveConfigurationButton]) {
+        control.disabled = disabled;
+    }
+
+    const pump = state?.pumps.find((item) => item.id === settingsId);
+    settingsForm.hidden = !pump;
+    byId("emptySettings").hidden = Boolean(pump);
+    for (const [id, row] of settingsRowItems) {
+        row.button.setAttribute("aria-pressed", String(id === settingsId));
+    }
+    if (!pump) {
+        return;
+    }
+
+    byId("settingsPumpTitle").textContent = pumpLabel(pump);
+    renderStatus(byId("settingsPumpStatus"), pump.status);
+    const draft = settingsDrafts.get(pump.id);
+    const { name, volume } = draft ?? settingsInputValues(pump);
+    if (pumpNameInput.value !== name) {
+        pumpNameInput.value = name;
+    }
+    if (pumpVolumeInput.value !== volume) {
+        pumpVolumeInput.value = volume;
+    }
+    applySettingsButton.disabled = !draft;
+    resetSettingsButton.hidden = !draft;
+}
+
+async function runSettingsAction(action, successMessage, onSuccess) {
+    if (!state || settingsBusy) {
+        return;
+    }
+    settingsBusy = true;
+    showSettingsFeedback("");
+    renderSettings();
+    try {
+        const result = await action();
+        if (result.error) {
+            showSettingsFeedback(result.error, true);
+        } else if (!result.cancelled) {
+            onSuccess?.(result);
+            showSettingsFeedback(successMessage);
+        }
+    } catch {
+        showSettingsFeedback("Не удалось выполнить операцию с настройками насосов.", true);
+    } finally {
+        settingsBusy = false;
+        renderSettings();
+    }
+}
+
+byId("addPumpForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const id = pumpIdInput.valueAsNumber;
+    await runSettingsAction(() => window.addPump(id), `Насос №${id} добавлен.`, () => {
+        settingsId = id;
+        pumpIdInput.value = "";
+    });
+    if (!byId("settingsPanel").hidden) {
+        pumpIdInput.focus();
+    }
+});
+
+settingsForm.addEventListener("input", () => {
+    const pump = state.pumps.find((item) => item.id === settingsId);
+    const original = settingsInputValues(pump);
+    const draft = { name: pumpNameInput.value, volume: pumpVolumeInput.value };
+    if (draft.name === original.name && draft.volume === original.volume) {
+        settingsDrafts.delete(settingsId);
     } else {
-        showNotification('Период должен быть положительным числом', 'modal-red');
+        settingsDrafts.set(settingsId, draft);
+    }
+    showSettingsFeedback("");
+    applySettingsButton.disabled = !settingsDrafts.has(settingsId);
+    resetSettingsButton.hidden = applySettingsButton.disabled;
+});
+
+resetSettingsButton.addEventListener("click", () => {
+    settingsDrafts.delete(settingsId);
+    showSettingsFeedback("");
+    renderSettings();
+});
+
+settingsForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const id = settingsId;
+    const draft = settingsDrafts.get(id);
+    if (!draft) {
+        return;
+    }
+
+    const raw = draft.volume.trim().replace(",", ".");
+    const volume = raw ? Number(raw) : null;
+    const decimal = /^(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i;
+    if (raw && (!decimal.test(raw) || !Number.isFinite(volume) || volume <= 0)) {
+        showSettingsFeedback("Введите объём за 1 оборот больше нуля или оставьте поле пустым.", true);
+        pumpVolumeInput.focus();
+        return;
+    }
+
+    const settings = { id, name: draft.name.trim(), volumePerTurnMicroliters: volume };
+    runSettingsAction(() => window.updatePumpSettings(settings), `Настройки насоса №${id} применены.`,
+        () => settingsDrafts.delete(id));
+});
+
+function canUseConfigurationFile() {
+    if (!settingsDrafts.size) {
+        return true;
+    }
+    selectSettingsPump(settingsDrafts.keys().next().value);
+    showSettingsFeedback("Примените или отмените правки, прежде чем работать с JSON.", true);
+    return false;
+}
+
+loadConfigurationButton.addEventListener("click", () => {
+    if (canUseConfigurationFile()) {
+        configurationFile.click();
     }
 });
 
-stopButton.addEventListener('click', () => {
-    window.onStopClick();
-});
-
-sendPortNameBtn.addEventListener('click', () => {
-    const text = portNameInput.value;
-    if (text) {
-        window.onRegisterClick(text);
-    } else {
-        // TODO error if text is empty
+configurationFile.addEventListener("change", () => {
+    const file = configurationFile.files[0];
+    configurationFile.value = "";
+    if (file && canUseConfigurationFile()) {
+        runSettingsAction(async () => window.loadPumpConfiguration(await file.text()), "Конфигурация загружена.");
     }
 });
 
-// === Элементы уведомлений ===
-const notifModal = document.getElementById('notificationModal');
-const notifMessage = document.getElementById('modalMessage');
-const notifClose = notifModal.querySelector('.close');
-
-function showNotification(message, colorClass) {
-    notifMessage.textContent = message;
-    notifModal.classList.remove('modal-green', 'modal-red');
-    notifModal.classList.add(colorClass);
-    notifModal.style.display = 'block';
-}
-
-// Функции для вызова из C++ (уведомления)
-window.showGreenModal = function(message) {
-    showNotification(message, 'modal-green');
-};
-window.showRedModal = function(message) {
-    showNotification(message, 'modal-red');
-};
-
-notifClose.onclick = () => notifModal.style.display = 'none';
-window.onclick = (event) => {
-    if (event.target === notifModal) notifModal.style.display = 'none';
-    if (event.target === editModal) closeEditModal();
-};
-
-// === Элементы модалки редактирования ===
-const editModal = document.getElementById('editModal');
-const editIdSpan = document.getElementById('editId');
-const editValueInput = document.getElementById('editValue');
-const saveEditBtn = document.getElementById('saveEditBtn');
-const editClose = editModal.querySelector('.close');
-
-let currentDeviceId = null;
-
-function openEditModal(device) {
-    currentDeviceId = device.id;
-    editIdSpan.textContent = device.id;
-    editValueInput.value = device.area;
-    editModal.style.display = 'block';
-}
-
-function closeEditModal() {
-    editModal.style.display = 'none';
-    currentDeviceId = null;
-}
-
-saveEditBtn.onclick = () => {
-    const newValue = parseFloat(editValueInput.value);
-    if (isNaN(newValue)) {
-        showNotification('Пожалуйста, введите корректное число', 'modal-red');
-        return;
-    }
-    // Вызываем C++ функцию, зарегистрированную как onUpdateDevice
-    if (typeof window.onUpdateDevice === 'function') {
-        const payload = { id: currentDeviceId, area: newValue };
-        window.onUpdateDevice(payload);
-    }
-    closeEditModal();
-};
-
-editClose.onclick = closeEditModal;
-
-// === Элементы модалки управления секция команд ===
-const stepsInput = document.getElementById('stepsInput');
-const directionSelect = document.getElementById('directionSelect');
-const sendCommandBtn = document.getElementById('sendCommandBtn');
-
-sendCommandBtn.onclick = () => {
-    let steps = parseInt(stepsInput.value);
-    // Проверка: натуральное число
-    if (isNaN(steps) || steps < 1) {
-        showNotification('Количество шагов должно быть натуральным числом (≥1)', 'modal-red');
-        return;
-    }
-    const direction = directionSelect.value; // "forward" или "backward"
-    const payload = {
-        id: currentDeviceId,
-        steps: steps,
-        direction: direction
-    };
-    if (typeof window.onDeviceCommand === 'function') {
-        window.onDeviceCommand(payload);
-    }
-};
-
-// === Элементы задания синхронного вращения ===
-const volumeInput = document.getElementById('volumeInput');
-const timeInput = document.getElementById('timeInput');
-const sendVolumeTimeBtn = document.getElementById('sendVolumeTimeBtn');
-
-sendVolumeTimeBtn.onclick = () => {
-    const volume = parseFloat(volumeInput.value);
-    const time = parseFloat(timeInput.value);
-    
-    // Проверка на корректность чисел
-    if (isNaN(volume)) {
-        showNotification('Введите корректное значение объёма', 'modal-red');
-        return;
-    }
-    if (isNaN(time) || time <= 0) {
-        showNotification('Время должно быть положительным числом', 'modal-red');
-        return;
-    }
-    
-    const payload = {
-        id: currentDeviceId,
-        volume: volume,
-        time: time
-    };
-    
-    if (typeof window.onVolumeTimeCommand === 'function') {
-        window.onVolumeTimeCommand(payload);
-    }
-};
-
-
-startButton
-
-
-
-function renderDevices(devices) {
-    const container = document.getElementById('devicesContainer');
-    container.innerHTML = ''; // очищаем предыдущие элементы
-
-    devices.forEach(device => {
-        // Создаём прямоугольник
-        const rect = document.createElement('div');
-        rect.className = 'device-rect';
-        rect.setAttribute('data-id', String(device.id));
-        
-        // Заполняем содержимое
-        rect.innerHTML = `
-            <strong>${escapeHtml(String(device.id))}</strong><br>
-            <small>Status: ${device.status}</small>
-            <small>Area: ${device.area.toFixed(4)}</small>
-        `;
-        
-        // Добавляем обработчик клика, если нужно
-        rect.addEventListener('click', () => {
-            if (typeof window.onDeviceClick === 'function') {
-                window.onDeviceClick(device.id);
+saveConfigurationButton.addEventListener("click", () => {
+    if (canUseConfigurationFile()) {
+        runSettingsAction(() => window.savePumpConfiguration(), "Конфигурация сохранена.", ({ configuration }) => {
+            if (configuration) {
+                const blob = new Blob([JSON.stringify(configuration, null, 2) + "\n"], { type: "application/json" });
+                const link = document.createElement("a");
+                link.href = URL.createObjectURL(blob);
+                link.download = "pumps.json";
+                link.click();
+                setTimeout(() => URL.revokeObjectURL(link.href), 1000);
             }
-            openEditModal(device);
         });
-        
-        container.appendChild(rect);
-    });
-}
-
-// Простая защита от XSS (экранирование)
-function escapeHtml(str) {
-    return str.replace(/[&<>]/g, function(m) {
-        if (m === '&') return '&amp;';
-        if (m === '<') return '&lt;';
-        if (m === '>') return '&gt;';
-        return m;
-    });
-}
-
-// Функция для обновления статуса из C++
-window.updateStatus = (message) => {
-    const statusDiv = document.getElementById('status');
-    if (statusDiv) {
-        statusDiv.innerText = message;
     }
-};
+});
+
+async function requestConnection(kind, action, failureMessage) {
+    connectionRequest = kind;
+    updateConnectControls();
+    showConnectionError("");
+    try {
+        const result = await action();
+        if (result.error) {
+            showConnectionError(result.error);
+        }
+    } catch {
+        showConnectionError(failureMessage);
+    } finally {
+        connectionRequest = null;
+        updateConnectControls();
+    }
+}
+
+connectForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    if (!connectButton.disabled) {
+        const port = portInput.value.trim();
+        requestConnection("connect", () => window.connectMaster(port), "Не удалось отправить запрос на подключение.");
+    }
+});
+
+findMasterButton.addEventListener("click", () => {
+    if (findMasterButton.disabled) {
+        return;
+    }
+    if (state.connection === "searching") {
+        requestConnection("cancel", () => window.cancelMasterSearch(), "Не удалось отменить поиск Master.");
+    } else {
+        requestConnection("search", () => window.findMaster(), "Не удалось запустить поиск Master.");
+    }
+});
+
+rotateForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (rotationFields.disabled || selectedId === null) {
+        return;
+    }
+    const id = selectedId;
+    const request = { id, turns: turnsInput.valueAsNumber, direction: directionSelect.value };
+    submittingRotation = true;
+    renderSelection();
+    let error = "";
+    try {
+        const result = await window.rotatePump(request);
+        error = result.error;
+    } catch {
+        error = "Не удалось отправить запрос на вращение.";
+    } finally {
+        submittingRotation = false;
+        renderSelection();
+        if (error && selectedId === id) {
+            showRotationFeedback(error, true);
+        }
+    }
+});
+
+(async () => {
+    try {
+        window.renderMonitor(await window.getMonitorState());
+    } catch {
+        showConnectionError("Не удалось загрузить состояние Monitor.");
+    }
+})();

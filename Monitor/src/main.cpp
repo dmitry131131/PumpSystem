@@ -1,38 +1,28 @@
+#include <cstdint>
+#include <exception>
 #include <iostream>
 #include <string>
-#include <thread>
-#include <chrono>
+#include <utility>
 
 #include "CLI/CLI.hpp"
-#include "serial/serial.h"
-
-#include "UART.hpp"
-#include "PumpMonitor.hpp"
 #include "GUI.hpp"
 
 int main(int argc, char** argv) try {
-
-    // Todo remove cli interface
     CLI::App app{"Pump system monitor"};
     argv = app.ensure_utf8(argv);
 
-    std::string port_name = "/dev/ttyUSB0";
-    unsigned baudrate = 115200;
+    std::string portName = "/dev/ttyUSB0";
+    std::uint32_t baudRate = 115200;
 
-    app.add_option("-p,--port", port_name, "Uart port name");
-    app.add_option("-b,--baud", baudrate, "Set uart baudrate");
+    app.add_option("-p,--port", portName, "UART port name");
+    app.add_option("-b,--baud", baudRate, "UART baud rate");
 
     CLI11_PARSE(app, argc, argv);
 
-    AsyncSerial serial{port_name, baudrate};
-    PumpMonitor Monitor{serial};
-    GUI window{Monitor, serial};
-    // Run GUI window
+    GUI window{std::move(portName), baudRate};
     window.run();
-
-    std::cout << "Program terminated!\n";
-
     return 0;
-} catch(const std::exception& e) {
-    std::cerr << "General error: " << e.what() << '\n';  
+} catch (const std::exception& error) {
+    std::cerr << "Monitor: " << error.what() << '\n';
+    return 1;
 }

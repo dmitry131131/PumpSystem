@@ -1,1 +1,3 @@
 build/
+monitor.log
+.clangd

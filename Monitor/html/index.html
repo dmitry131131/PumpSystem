@@ -1,76 +1,112 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ru">
 <head>
-    <meta charset="UTF-8">
-    <title>UART Controller</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Pump System Monitor</title>
     <link rel="stylesheet" href="style.css">
+    <script src="script.js" defer></script>
 </head>
 <body>
-    <div class="container">
-
-        <!-- Модальное окно для уведомлений (зелёное/красное) -->
-        <div id="notificationModal" class="modal notification-modal">
-            <div class="modal-content">
-                <span class="close">&times;</span>
-                <p id="modalMessage">Сообщение</p>
+    <header class="connection-bar">
+        <div class="brand">
+            <h1>Pump System Monitor</h1>
+            <p id="connectionStatus" class="status" data-status="disconnected" role="status">Master не подключён</p>
+        </div>
+        <form id="connectForm" class="connect-form">
+            <label for="portNameInput">Порт Master</label>
+            <div class="connect-controls">
+                <input type="text" id="portNameInput" value="/dev/ttyUSB0" placeholder="/dev/ttyUSB0"
+                       spellcheck="false" autocomplete="off" required disabled>
+                <button id="sendPortNameBtn" type="submit" disabled>Подключить</button>
+                <button id="findMasterButton" class="secondary-button" type="button" disabled>Найти Master</button>
             </div>
+        </form>
+    </header>
+    <p id="connectionError" class="connection-error" role="alert" hidden></p>
+
+    <main>
+        <div class="tabs" role="tablist" aria-label="Разделы Monitor">
+            <button id="manualTab" class="tab" type="button" role="tab" aria-selected="true"
+                    aria-controls="manualPanel">Ручное управление</button>
+            <button id="settingsTab" class="tab" type="button" role="tab" aria-selected="false"
+                    aria-controls="settingsPanel" tabindex="-1">Настройки насосов</button>
         </div>
 
-        <!-- Модальное окно для редактирования устройства -->
-        <div id="editModal" class="modal edit-modal">
-            <div class="modal-content">
-                <span class="close">&times;</span>
-                <h3 id="editTitle">Редактирование устройства</h3>
-                <p><strong>ID:</strong> <span id="editId"></span></p>
-                <label for="editValue">Новое значение площади поршня (квадратные сантиметры):</label>
-                <input type="number" id="editValue" step="any" placeholder="Введите число">
-                <button id="saveEditBtn">Сохранить</button>
+        <div id="manualPanel" class="workspace" role="tabpanel" aria-labelledby="manualTab">
+            <aside class="pump-list" aria-labelledby="pumpListTitle">
+                <h2 id="pumpListTitle">Насосы</h2>
+                <p id="pumpListEmpty" class="muted">Подключите Master или добавьте насос в настройках.</p>
+                <ul id="pumpRows"></ul>
+            </aside>
 
-                <!-- Секция управления командой вращения -->
-                <hr style="margin: 15px 0;">
-                <h4>Управление синхронным вращением</h4>
-                <label for="volumeInput">Объём (в мкл):</label>
-                <input type="number" id="volumeInput" step="any" placeholder="Например, 1.5">
-                <label for="timeInput">Время совершения подачи (секунды):</label>
-                <input type="number" id="timeInput" step="any" placeholder="Например, 0.5">
-                <button id="sendVolumeTimeBtn">Сохранить</button>
+            <section class="pump-control" aria-labelledby="selectedPumpTitle">
+                <div id="emptySelection" class="empty-selection">Выберите насос из списка.</div>
+                <div id="selectedPump" hidden>
+                    <h2 id="selectedPumpTitle"></h2>
+                    <p id="selectedPumpStatus" class="status"></p>
 
-                <hr style="margin: 15px 0;">
-                <h4>Ручное управление движением</h4>
-                <label for="stepsInput">Количество оборотов (натуральное число):</label>
-                <input type="number" id="stepsInput" min="1" step="1" value="1">
-                <label for="directionSelect">Направление:</label>
-                <select id="directionSelect">
-                    <option value="forward">Вперёд</option>
-                    <option value="backward">Назад</option>
-                </select>
+                    <form id="rotateForm">
+                        <fieldset id="rotationFields" disabled>
+                            <label for="turnsInput">Количество оборотов</label>
+                            <input type="number" id="turnsInput" min="1" step="1" value="1"
+                                   aria-describedby="turnsHint" required>
+                            <p id="turnsHint" class="muted"></p>
 
-                <button id="sendCommandBtn">Запустить вращение</button>
+                            <label for="directionSelect">Направление</label>
+                            <select id="directionSelect">
+                                <option value="forward">Вперёд</option>
+                                <option value="reverse">Назад</option>
+                            </select>
+
+                            <button id="rotateButton" type="submit">Запустить вращение</button>
+                        </fieldset>
+                    </form>
+                    <p id="rotationFeedback" class="feedback" role="status"></p>
+                </div>
+            </section>
+        </div>
+
+        <div id="settingsPanel" class="workspace" role="tabpanel" aria-labelledby="settingsTab" hidden>
+            <div class="settings-toolbar">
+                <button id="loadConfigurationButton" class="secondary-button" type="button" disabled>Загрузить JSON</button>
+                <button id="saveConfigurationButton" class="secondary-button" type="button" disabled>Сохранить JSON</button>
+                <input id="configurationFile" type="file" accept=".json,application/json" hidden>
             </div>
+
+            <aside class="pump-list" aria-labelledby="settingsListTitle">
+                <h2 id="settingsListTitle">Насосы</h2>
+                <form id="addPumpForm" class="add-pump-form">
+                    <label for="pumpIdInput">Номер насоса</label>
+                    <div class="add-pump-controls">
+                        <input id="pumpIdInput" type="number" step="1" placeholder="101" required disabled>
+                        <button id="addPumpButton" type="submit" disabled>Добавить</button>
+                    </div>
+                </form>
+                <p id="settingsListEmpty" class="muted">Список пока пуст.</p>
+                <ul id="settingsPumpRows"></ul>
+            </aside>
+
+            <section class="pump-control" aria-label="Параметры насоса">
+                <p id="emptySettings" class="empty-selection">Добавьте насос по номеру или выберите его из списка.</p>
+                <form id="pumpSettingsForm" hidden>
+                    <h2 id="settingsPumpTitle"></h2>
+                    <p id="settingsPumpStatus" class="status"></p>
+                    <fieldset id="pumpSettingsFields" disabled>
+                        <label for="pumpNameInput">Название</label>
+                        <input id="pumpNameInput" type="text" autocomplete="off">
+                        <label for="pumpVolumeInput">Объём за 1 оборот, мкл</label>
+                        <input id="pumpVolumeInput" type="text" inputmode="decimal" autocomplete="off"
+                               placeholder="Например, 12,5">
+                        <div class="settings-actions">
+                            <button id="applyPumpSettings" type="submit" disabled>Применить</button>
+                            <button id="resetPumpSettings" class="secondary-button" type="button" hidden>Отменить правки</button>
+                        </div>
+                    </fieldset>
+                </form>
+                <p id="settingsFeedback" class="feedback" role="status"></p>
+            </section>
         </div>
-
-        <h2>Pump system monitor</h2>
-
-        <div class="input-group">
-            <input type="text" id="portNameInput" placeholder="/dev/ttyUSB0">
-            <button id="sendPortNameBtn">Connect</button>
-        </div>
-
-        <div id="devicesContainer"></div>
-
-        <h4>Период исполнения в секундах</h4>
-        <div class="input-group">
-            <input type="number" id="periodInput" placeholder="10">
-        </div>
-
-        <div class="button-group">
-            <button id="startButton">Запустить</button>
-            <button id="stopButton">Остановить</button>
-        </div>
-
-        <div id="status">Ожидание действий...</div>
-    </div>
-
-    <script src="script.js"></script>
+    </main>
 </body>
 </html>
