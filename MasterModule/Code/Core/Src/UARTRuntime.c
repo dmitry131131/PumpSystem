@@ -6,6 +6,10 @@
 #include "Device.h"
 #include "State.h"
 
+#define MONITOR_TIMEOUT_MS (3U * UART_POLL_INTERVAL_MS)
+
+static uint32_t lastMonitorRequest;
+
 static void RxRuntime(fifo_t CANTxFIFO, fifo_t RxFIFO, fifo_t TxFIFO);    // Process Rx messages (RxFIFO -> CAN + UART)
 static void TxRuntime(UART_HandleTypeDef *huart, fifo_t TxFIFO);    // Process Tx messages (TxFIFO -> UART)
 
@@ -13,6 +17,13 @@ static void UARTCommandMessageHandler(fifo_t CANTxFIFO, const UART_Message *RxMe
 static void UARTDataMessageHandler(fifo_t CANTxFIFO, const UART_Message *RxMessage, fifo_t UARTTxFIFO);
 
 void UARTRuntime(UART_HandleTypeDef *huart, fifo_t CANTxFIFO, fifo_t UARTRxFIFO, fifo_t UARTTxFIFO) {
+    if (RegisteredByMonitor && HAL_GetTick() - lastMonitorRequest >= MONITOR_TIMEOUT_MS) {
+        RegisteredByMonitor = 0;
+        // Discard queued messages from the expired session and let any active TX finish.
+        while (!fifo_is_empty(UARTTxFIFO)) {
+            fifo_discard(UARTTxFIFO, 1, E_FIFO_FRONT);
+        }
+    }
     RxRuntime(CANTxFIFO, UARTRxFIFO, UARTTxFIFO);
     TxRuntime(huart, UARTTxFIFO);
 
@@ -63,10 +74,10 @@ static void RxRuntime(fifo_t CANTxFIFO, fifo_t UARTRxFIFO, fifo_t UARTTxFIFO) {
         return;
     }
 
-    bool isRegistration = RxMessage.message_type == UART_DATA && RxMessage.size >= 1 &&
-                          RxMessage.data[0] == UART_MASTER_REGISTRATION;
+    const bool repliesViaUart = RxMessage.message_type == UART_DATA && RxMessage.size >= 1 &&
+                               (RxMessage.data[0] == UART_MASTER_REGISTRATION || RxMessage.data[0] == UART_REQUEST);
     // Keep the request queued until its output queue has room.
-    if (fifo_is_full(isRegistration ? UARTTxFIFO : CANTxFIFO)) {
+    if (repliesViaUart ? fifo_is_full(UARTTxFIFO) : (RegisteredByMonitor && fifo_is_full(CANTxFIFO))) {
         return;
     }
 
@@ -116,8 +127,21 @@ static void UARTDataMessageHandler(fifo_t CANTxFIFO, const UART_Message *RxMessa
 
         fifo_add(UARTTxFIFO, &TxMsg);
         RegisteredByMonitor = 1;
+        lastMonitorRequest = HAL_GetTick();
         for (size_t i = 0; i < Pumps.size; ++i) {
             Pumps.List[i].MonitorNotified = 0;
+        }
+        break;
+    }
+
+    case UART_REQUEST: {
+        if (!RegisteredByMonitor || RxMessage->device_id != UART_MASTER_ADDRESS || RxMessage->size != 1) {
+            break;
+        }
+
+        UART_Message reply = CreateUARTResponseMessage();
+        if (fifo_add(UARTTxFIFO, &reply)) {
+            lastMonitorRequest = HAL_GetTick();
         }
         break;
     }

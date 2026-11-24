@@ -1,275 +1,302 @@
-#include <nlohmann/json.hpp>
 #include "GUI.hpp"
 
-using json = nlohmann::json;
+#include <nlohmann/json.hpp>
 
-void GUI::registerCallbacks() {
-    // Register START callback
-    window_.bind("onRegisterClick", [&](std::string data) -> std::string {
-        if (serial_.running()) {
-            std::cout << "Master already registered!\n";
-            window_.eval("showGreenModal('Master already registered!');");
-            return {};
-        }
+#include <utility>
 
-        const std::string portName = data.substr(2, data.size() - 4);
-        std::cout << "Register master on port: " << portName << '\n';
-        serial_.setPortName(portName);
+namespace {
+using nlohmann::json;
 
-        if(serial_.open()) {
-            std::cout << "Register success!\n";
-            window_.eval("showGreenModal('Register success!');");
-        } else {
-            std::cout << "Register fail!\n";
-            window_.eval("showRedModal('Register fail!');");
-        }
-
-        return {};
-    });
-
-    window_.bind("onDeviceClick", [&](std::string data) -> std::string {
-        std::cout << "Clicked on device with ID: " << data << std::endl;
-        return {};
-    });
-
-    // Функция для обновления устройства — принимает JSON-строку
-    window_.bind("onUpdateDevice", [&](std::string jsonPayload) -> std::string {
-        try {
-            auto data = json::parse(jsonPayload);
-
-            std::cerr << data << '\n';
-            int id = data[0]["id"];
-            double newArea = data[0]["area"];
-
-            std::cerr << id << '\n';
-            std::cerr << newArea << '\n';
-
-            std::lock_guard<std::mutex> lock(monitor_.getMutex());
-            if (!monitor_.hasDevice(id)) {
-                // TODO error no such device
-                return {};
-            }
-
-            monitor_.getDevice(id)->get().setSpringeArea(newArea);
-
-        } catch (const std::exception& e) {
-            std::cerr << "JSON parse error: " << e.what() << std::endl;
-        }
-        return {};
-    });
-
-    // Обработчик команды движения
-    window_.bind("onDeviceCommand", [&](std::string req) -> std::string {
-        try {
-            // Приходит массив аргументов
-            auto args = json::parse(req);
-            if (!args.is_array() || args.empty()) {
-                std::cerr << "Invalid arguments" << std::endl;
-                return std::string();
-            }
-
-            // Получаем JSON-объект команды
-            auto cmd = args[0];
-            int id = cmd["id"];
-            int steps = cmd["steps"];
-            std::string direction = cmd["direction"];
-
-            std::lock_guard<std::mutex> lock(monitor_.getMutex());
-            if (!monitor_.hasDevice(id)) {
-                return {};  // TODO error
-            }
-
-            const Pump& pump = monitor_.getDevice(id)->get();
-
-            RotationInstruction::Direction instrDirection;
-            if (direction == "forward") {
-                instrDirection = RotationInstruction::Direction::FORWARD;
-            } else {
-                instrDirection = RotationInstruction::Direction::REVERSE;
-            }
-
-            // TODO Add personal start message to launch separated pumps
-            // BUG The rotation degree multiplied by 2 in real machine
-            RotationInstruction instr{instrDirection, static_cast<float>(360 * steps / 2), 6};
-            
-            std::cerr << "Rotation: " << "degree: " << instr.degree_ << "direction: " << direction; 
-
-            serial_.sendMessage(UART_Message_Builder::create_clear_data_buffer_message(pump.getId()));
-            serial_.sendMessage(UART_Message_Builder::create_rotation_operation_message(pump.getId(), instr));
-            sleep(1);
-            serial_.sendMessage(UART_Message_Builder::create_start_command_message());
-            // serial_.sendMessage(UART_Message_Builder::create_clear_data_buffer_message(pump.getId()));
-
-            // Отправляем уведомление в UI (зелёное)
-            window_.dispatch([&]() {
-                window_.eval("showGreenModal('Device move');");
-            });
-            
-        } catch (const std::exception& e) {
-            std::cerr << "Command error: " << e.what() << std::endl;
-            window_.dispatch([&]() {
-                window_.eval("showRedModal('Ошибка обработки команды');");
-            });
-        }
-        return {};
-    });
-
-    window_.bind("onVolumeTimeCommand", [&](std::string req) -> std::string {
-        try {
-            auto args = json::parse(req);
-            if (!args.is_array() || args.empty()) {
-                std::cerr << "Invalid volume-time arguments" << std::endl;
-                return {};
-            }
-            auto cmd = args[0];
-            int id = cmd["id"];
-            double volume = cmd["volume"];
-            double time = cmd["time"];
-            
-            // Здесь вызываете вашу функцию, например, setVolumeAndTime(id, volume, time)
-            std::cout << "Device " << id << ": volume=" << volume << ", time=" << time << " seconds" << std::endl;
-
-            // Add instruction to pump
-            std::lock_guard<std::mutex> lock(monitor_.getMutex());
-            if (!monitor_.hasDevice(id)) {
-                return {};  // TODO error
-            }
-
-            const Pump& pump = monitor_.getDevice(id)->get();
-
-            // BUG The rotation degree multiplied by 2 in real machine
-            float degree = static_cast<float>((volume * 360.0)/(1000.0 * 0.2 * pump.getSpringeArea())); // TODO add constants
-            unsigned RPM = static_cast<int>(((degree / 360.0) / time) * 60);   
-
-            RotationInstruction instr{RotationInstruction::Direction::FORWARD, degree / 2, RPM};
-            
-            std::cerr << "Rotation: ID: " << pump.getId() << " degree: " << instr.degree_ << " RPM: " << instr.rpm_ << '\n'; 
-
-            // Clear DataBuffer and send new instruction
-            serial_.sendMessage(UART_Message_Builder::create_clear_data_buffer_message(pump.getId()));
-            serial_.sendMessage(UART_Message_Builder::create_rotation_operation_message(pump.getId(), instr));
-            
-            // Отправляем уведомление в UI
-            window_.dispatch([&]() {
-                window_.eval(("showGreenModal('Команда успешно сохранена');"));
-            });
-            
-        } catch (const std::exception& e) {
-            std::cerr << "Volume-time command error: " << e.what() << std::endl;
-            window_.dispatch([&]() {
-                window_.eval("showRedModal('Ошибка обработки команды объёма/времени');");
-            });
-        }
-        return {};
-    });
-
-
-    window_.bind("onStartClick", [&](std::string data) -> std::string {
-        if (!serial_.running()) {
-            window_.dispatch([&]() {
-                window_.eval("showRedModal('Насосная система не зарегистрирована!');");
-            });
-            return {};
-        }
-
-        std::cout << "Start button clicked: " << data << std::endl;
-
-        auto args = json::parse(data);
-        if (!args.is_array() || args.empty()) {
-            std::cerr << "Invalid onStartClick arguments" << std::endl;
-            return {};
-        }
-        auto packed = args[0];
-        int period = packed["period"];
-        std::cerr << "Period: " << period << '\n';
-
-        monitor_.setProcessingPeriod(period);
-        monitor_.startProcessing();
-
-        window_.dispatch([&]() {
-            window_.eval(("showGreenModal('Исполнение запущено!');"));
-        });
-
-        return {};
-    });
-
-    window_.bind("onStopClick", [&](std::string data) -> std::string {
-        if (!serial_.running()) {
-            window_.dispatch([&]() {
-                window_.eval("showRedModal('Насосная система не зарегистрирована!');");
-            });
-
-            return {};
-        }
-
-        std::cout << "Stop button clicked: " << data << std::endl;
-
-        monitor_.stopProcessing();
-
-        window_.dispatch([&]() {
-            window_.eval(("showGreenModal('Исполнение завершено!');"));
-        });
-
-        return {};
-    });
+std::string reply(const std::string& error) {
+    return json{{"error", error}}.dump();
 }
 
-void GUI::sync() {
-    while (true) {
-        if (!runnning_) {
-            break;
-        }
+json pumpSettingsJson(int id, const PumpMonitor::PumpSettings& settings) {
+    return {{"id", id}, {"name", settings.name}, {"volumePerTurnMicroliters",
+             settings.volumePerTurnMicroliters ? json(*settings.volumePerTurnMicroliters) : json(nullptr)}};
+}
 
-        // Формируем JSON
-        json j = json::array();
-
-        // TODO remove test device
-        j.push_back({
-            {"id", 100},
-            {"status", 0},
-            {"area", 1}
-        });
-
-        {
-            std::lock_guard<std::mutex> lock(monitor_.getMutex());
-            for (auto I = monitor_.cbegin(); I != monitor_.cend(); ++I) {
-                const Pump &pump = I->second;
-
-                j.push_back({
-                    {"id", pump.getId()},
-                    {"status", static_cast<int>(pump.getStatus())},
-                    {"area", pump.getSpringeArea()}
-                });
-            }
-        }
-
-        std::string devicesJson = j.dump();
-        window_.dispatch([&]() {
-            window_.eval("renderDevices(" + devicesJson + ");");
-        });
-
-        sleep(1);       // FIXME doesn't work without sleep
+json pumpConfiguration(const PumpMonitor::Snapshot& state) {
+    auto pumps = json::array();
+    for (const auto& [id, pump] : state.pumps) {
+        pumps.push_back(pumpSettingsJson(id, pump.settings));
     }
+    return {{"version", 1}, {"pumps", std::move(pumps)}};
+}
+
+#if defined(WEBVIEW_GTK)
+std::string writePumpConfiguration(GFile* file, const PumpMonitor::Snapshot& state) {
+    const std::string contents = pumpConfiguration(state).dump(2) + '\n';
+    g_autoptr(GError) error = nullptr;
+    if (file && g_file_replace_contents(file, contents.data(), contents.size(), nullptr, FALSE,
+                                       G_FILE_CREATE_NONE, nullptr, nullptr, &error)) {
+        return {};
+    }
+    std::string message = "Не удалось сохранить конфигурацию.";
+    if (error) {
+        message += " ";
+        message += error->message;
+    }
+    return message;
+}
+#endif
+
+std::optional<int> pumpIdFromJson(const json& id) {
+    if (!id.is_number_integer() || id.get<double>() < PumpMonitor::minPumpId
+        || id.get<double>() > PumpMonitor::maxPumpId) {
+        return std::nullopt;
+    }
+    return id.get<int>();
+}
+
+std::optional<PumpMonitor::PumpSettings> pumpSettingsFromJson(const json& pump) {
+    const auto& name = pump.at("name");
+    const auto& volume = pump.at("volumePerTurnMicroliters");
+    if (!name.is_string() || !(volume.is_null() || volume.is_number())) {
+        return std::nullopt;
+    }
+    return PumpMonitor::PumpSettings{
+        name.get<std::string>(), volume.is_null() ? std::nullopt : std::optional(volume.get<double>())
+    };
+}
+
+std::string importPumpConfiguration(PumpMonitor& monitor, const json& config) {
+    const auto& version = config.at("version");
+    const auto& pumps = config.at("pumps");
+    if (!version.is_number_integer() || version != 1 || !pumps.is_array()) {
+        return "Ожидается JSON-конфигурация насосов версии 1.";
+    }
+
+    std::map<int, PumpMonitor::PumpSettings> settings;
+    for (const auto& entry : pumps) {
+        const auto id = pumpIdFromJson(entry.at("id"));
+        auto pump = pumpSettingsFromJson(entry);
+        if (!id || !pump) {
+            return "Проверьте номера, названия и объёмы насосов в файле.";
+        }
+        if (!settings.try_emplace(*id, std::move(*pump)).second) {
+            return "В файле повторяется насос №" + std::to_string(*id) + ".";
+        }
+    }
+    return monitor.importPumpSettings(std::move(settings));
+}
+
+json snapshotJson(const PumpMonitor::Snapshot& state) {
+    using enum PumpMonitor::Connection;
+    const char* connection = "disconnected";
+    switch (state.connection) {
+    case Disconnected: break;
+    case Connecting: connection = "connecting"; break;
+    case Searching: connection = "searching"; break;
+    case CancellingSearch: connection = "cancellingSearch"; break;
+    case Connected: connection = "connected"; break;
+    }
+
+    auto pumps = json::array();
+    for (const auto& [id, pump] : state.pumps) {
+        const char* status = "offline";
+        switch (pump.status) {
+        case PUMP_ENABLE: status = "online"; break;
+        case PUMP_DISABLE: break;
+        case PUMP_BLOCKED_FORWARD: status = "forwardLocked"; break;
+        case PUMP_BLOCKED_REVERSE: status = "reverseLocked"; break;
+        }
+        auto entry = pumpSettingsJson(id, pump.settings);
+        entry["status"] = status;
+        pumps.push_back(std::move(entry));
+    }
+
+    json rotation = nullptr;
+    if (state.rotation) {
+        rotation = {
+            {"pumpId", state.rotation->pumpId}, {"pending", state.rotation->pending},
+            {"error", state.rotation->error}, {"message", state.rotation->message}
+        };
+    }
+
+    return {{"connection", connection}, {"port", state.port}, {"searchPort", state.searchPort},
+            {"connectionLost", state.connectionLost},
+            {"connectionError", state.connectionError}, {"pumps", std::move(pumps)},
+            {"rotation", std::move(rotation)}, {"maxTurns", PumpMonitor::maxTurns},
+            {"minPumpId", PumpMonitor::minPumpId}, {"maxPumpId", PumpMonitor::maxPumpId}};
+}
+}
+
+GUI::GUI(std::string defaultPort, std::uint32_t baudRate)
+    : monitor_(std::move(defaultPort), baudRate, [this] { publishState(); }) {
+    window_.set_title("Pump System Monitor");
+    window_.set_size(900, 580, WEBVIEW_HINT_NONE);
+}
+
+GUI::~GUI() {
+    monitor_.stop();
+    updatesActive_.reset();
+#if defined(WEBVIEW_GTK)
+    if (saveDialog_) {
+        gtk_native_dialog_destroy(saveDialog_);
+        g_object_unref(saveDialog_);
+    }
+#endif
+}
+
+void GUI::registerCallbacks() {
+    const std::weak_ptr active = updatesActive_;
+    window_.bind("getMonitorState", [this, active](const std::string&) {
+        if (active.expired()) {
+            return std::string{};
+        }
+        return snapshotJson(monitor_.snapshot()).dump(-1, ' ', false, json::error_handler_t::replace);
+    });
+    window_.bind("connectMaster", [this, active](const std::string& args) {
+        if (active.expired()) {
+            return std::string{};
+        }
+        try {
+            return reply(monitor_.connect(json::parse(args).at(0).get<std::string>()));
+        } catch (const json::exception&) {
+            return reply("Проверьте путь к последовательному порту.");
+        }
+    });
+    window_.bind("findMaster", [this, active](const std::string&) {
+        if (active.expired()) {
+            return std::string{};
+        }
+        return reply(monitor_.findMaster());
+    });
+    window_.bind("cancelMasterSearch", [this, active](const std::string&) {
+        if (active.expired()) {
+            return std::string{};
+        }
+        monitor_.cancelMasterSearch();
+        return reply("");
+    });
+    window_.bind("rotatePump", [this, active](const std::string& args) {
+        if (active.expired()) {
+            return std::string{};
+        }
+        try {
+            const auto request = json::parse(args).at(0);
+            const auto id = pumpIdFromJson(request.at("id"));
+            const auto direction = request.at("direction").get<std::string>();
+            const bool byVolume = request.contains("volumeMicroliters");
+            if (!id || byVolume == request.contains("turns") || (direction != "forward" && direction != "reverse")) {
+                return reply("Проверьте насос, величину и направление вращения.");
+            }
+            const auto& amount = request.at(byVolume ? "volumeMicroliters" : "turns");
+            if (!(byVolume ? amount.is_number() : amount.is_number_integer())) {
+                return reply("Введите корректный объём или целое число оборотов.");
+            }
+            using enum PumpMonitor::RotationUnit;
+            return reply(monitor_.rotate(*id, amount.get<double>(), direction == "forward" ? FORWARD : REVERSE,
+                                         byVolume ? Microliters : Turns));
+        } catch (const json::exception&) {
+            return reply("Некорректные параметры вращения.");
+        }
+    });
+    window_.bind("addPump", [this, active](const std::string& args) {
+        if (active.expired()) {
+            return std::string{};
+        }
+        try {
+            const auto id = pumpIdFromJson(json::parse(args).at(0));
+            if (id) {
+                return reply(monitor_.addPump(*id));
+            }
+        } catch (const json::exception&) {
+        }
+        return reply("Введите целый номер насоса от 3 до 255.");
+    });
+    window_.bind("updatePumpSettings", [this, active](const std::string& args) {
+        if (active.expired()) {
+            return std::string{};
+        }
+        try {
+            const auto request = json::parse(args).at(0);
+            const auto id = pumpIdFromJson(request.at("id"));
+            auto settings = pumpSettingsFromJson(request);
+            if (id && settings) {
+                return reply(monitor_.updatePumpSettings(*id, std::move(*settings)));
+            }
+        } catch (const json::exception&) {
+        }
+        return reply("Проверьте номер, название и объём насоса.");
+    });
+    window_.bind("loadPumpConfiguration", [this, active](const std::string& args) {
+        if (active.expired()) {
+            return std::string{};
+        }
+        try {
+            const auto contents = json::parse(args).at(0).get<std::string>();
+            return reply(importPumpConfiguration(monitor_, json::parse(contents)));
+        } catch (const json::exception&) {
+            return reply("Не удалось прочитать JSON-конфигурацию. Проверьте формат файла.");
+        }
+    });
+#if defined(WEBVIEW_GTK)
+    window_.bind("savePumpConfiguration", [this, active](std::string id, std::string, void*) {
+        if (!active.expired()) {
+            savePumpConfiguration(std::move(id));
+        }
+    }, nullptr);
+#else
+    window_.bind("savePumpConfiguration", [this, active](const std::string&) {
+        if (active.expired()) {
+            return std::string{};
+        }
+        return json{{"configuration", pumpConfiguration(monitor_.snapshot())}}.dump();
+    });
+#endif
+}
+
+#if defined(WEBVIEW_GTK)
+void GUI::savePumpConfiguration(std::string requestId) {
+    if (saveDialog_) {
+        window_.resolve(requestId, 0, reply("Диалог сохранения уже открыт."));
+        return;
+    }
+
+    auto* dialog = gtk_file_chooser_native_new("Сохранить настройки насосов", GTK_WINDOW(window_.window().value()),
+                                              GTK_FILE_CHOOSER_ACTION_SAVE, "Сохранить", "Отмена");
+    gtk_file_chooser_set_current_name(GTK_FILE_CHOOSER(dialog), "pumps.json");
+#if GTK_MAJOR_VERSION < 4
+    gtk_file_chooser_set_do_overwrite_confirmation(GTK_FILE_CHOOSER(dialog), TRUE);
+#endif
+    saveDialog_ = GTK_NATIVE_DIALOG(dialog);
+    saveRequestId_ = std::move(requestId);
+    g_signal_connect(saveDialog_, "response", G_CALLBACK(+[](GtkNativeDialog*, int response, gpointer data) {
+        static_cast<GUI*>(data)->finishSavingPumpConfiguration(response);
+    }), this);
+    gtk_native_dialog_set_modal(saveDialog_, TRUE);
+    gtk_native_dialog_show(saveDialog_);
+}
+
+void GUI::finishSavingPumpConfiguration(int response) {
+    const bool cancelled = response != GTK_RESPONSE_ACCEPT;
+    std::string error;
+    if (!cancelled) {
+        g_autoptr(GFile) file = gtk_file_chooser_get_file(GTK_FILE_CHOOSER(saveDialog_));
+        error = writePumpConfiguration(file, monitor_.snapshot());
+    }
+
+    gtk_native_dialog_destroy(saveDialog_);
+    g_object_unref(std::exchange(saveDialog_, nullptr));
+    window_.resolve(saveRequestId_, 0, json{{"error", error}, {"cancelled", cancelled}}.dump());
+}
+#endif
+
+void GUI::publishState() {
+    // Webview may drain queued callbacks while destroying the native window.
+    window_.dispatch([this, active = std::weak_ptr(updatesActive_)] {
+        if (!active.expired()) {
+            const auto state = snapshotJson(monitor_.snapshot());
+            window_.eval("window.renderMonitor?.("
+                         + state.dump(-1, ' ', false, json::error_handler_t::replace) + ")");
+        }
+    });
 }
 
 void GUI::run() {
-    try {
-        registerCallbacks();
-        // Run GUI window
-        runnning_ = true;
-        std::thread sync_thread_ = std::thread{&GUI::sync, this};
-
-        window_.run();
-        runnning_ = false;
-
-        if (sync_thread_.joinable()) {
-            sync_thread_.join();
-        }
-
-        // Terminate serial monitoring thread 
-        monitor_.stopMonitoring();
-    } catch (const webview::exception &e) {
-        std::cerr << "GUI error: " << e.what() << '\n';
-        return;
-    }
+    registerCallbacks();
+    window_.navigate(HTML_FILE);
+    window_.run();
 }

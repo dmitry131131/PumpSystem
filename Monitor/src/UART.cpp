@@ -1,234 +1,187 @@
 #include "UART.hpp"
-#include "Pump.hpp"
 
-UART_Message::UART_Message(const std::vector<uint8_t> &dataVector) : UART_Message() {
-    if (dataVector.size() < MESSAGE_SIZE) return;
+#include <algorithm>
+#include <bit>
+#include <chrono>
+#include <format>
+#include <iostream>
+#include <limits>
+#include <stdexcept>
 
-    message_type_ = static_cast<MessageType>(dataVector[0]);
-    device_id_ = dataVector[1];
-    data_size_ = dataVector[2];
-    data_type_ = static_cast<DataType>(dataVector[3]);
-    data_.insert(data_.begin(), std::next(dataVector.cbegin(), 4), dataVector.cend());
+namespace {
+static_assert(sizeof(UART_Message) == 11);
+static_assert(sizeof(float) == 4 && std::numeric_limits<float>::is_iec559);
+
+std::string logTimestamp() {
+    const auto now = std::chrono::floor<std::chrono::milliseconds>(std::chrono::system_clock::now());
+    return std::format("{:%FT%T}Z", now);
 }
 
-std::vector<uint8_t> UART_Message::to_vector() const {
-    std::vector<uint8_t> vector;
-
-    vector.push_back(static_cast<uint8_t>(message_type_)); // TODO create message type a uint8_t type
-    vector.push_back(static_cast<uint8_t>(device_id_));
-    vector.push_back(static_cast<uint8_t>(data_size_));
-    vector.push_back(static_cast<uint8_t>(data_type_));
-    vector.insert(vector.end(), data_.cbegin(), data_.cend());
-
-    while (vector.size() != MESSAGE_SIZE) {
-        vector.push_back(0);
+std::string_view messageName(const UART_Message& message) {
+    if (message.size < 1 || message.size > sizeof(message.data)) {
+        return "INVALID_SIZE";
     }
-
-    return vector;
-}
-
-UART_Message UART_Message_Builder::create_master_registration_message() {
-    return UART_Message{UART_Message::MessageType::UART_DATA,               // Message type
-                        0,                                                  // Device ID    
-                        1,                                                  // Data size
-                        UART_Message::DataType::UART_MASTER_REGISTRATION,   // Data type
-                        {}};                                                // Data
-}
-
-UART_Message UART_Message_Builder::create_rotation_operation_message(unsigned DeviceId, const RotationInstruction &rotationInstruction) {
-    union {
-        float f;
-        uint8_t bytes[4];
-    } converter;
-
-    converter.f = rotationInstruction.degree_;
-    std::vector<uint8_t> data;
-    data.push_back(0); // TODO Opcode
-    data.push_back(static_cast<uint8_t>(rotationInstruction.direction_));
-    for (auto B : converter.bytes) {
-        data.push_back(B);
+    if (message.message_type == UART_COMMAND) {
+        switch (message.data[0]) {
+        case UART_COMMAND_START: return "GLOBAL_START";
+        case UART_COMMAND_STOP: return "GLOBAL_STOP";
+        default: return "UNKNOWN_COMMAND";
+        }
     }
-    data.push_back(static_cast<uint8_t>(rotationInstruction.rpm_));
-
-    return UART_Message{UART_Message::MessageType::UART_DATA,               // Message type
-                        static_cast<uint8_t>(DeviceId),                     // Device ID    
-                        8,                                                  // Data size
-                        UART_Message::DataType::UART_DATA_PACKAGE,          // Data type
-                        data};                                              // Data
+    if (message.message_type != UART_DATA) {
+        return "UNKNOWN_MESSAGE_TYPE";
+    }
+    switch (message.data[0]) {
+    case UART_MASTER_REGISTRATION: return "MASTER_REGISTRATION";
+    case UART_MASTER_RESPONSE: return "MASTER_RESPONSE";
+    case UART_REQUEST: return "UART_REQUEST";
+    case UART_RESPONSE: return "UART_RESPONSE";
+    case UART_DEVICE_ONLINE: return "DEVICE_ONLINE";
+    case UART_DEVICE_OFFLINE: return "DEVICE_OFFLINE";
+    case UART_FORWARD_LOCK_REACHED: return "FORWARD_LOCK_REACHED";
+    case UART_FORWARD_LOCK_RELEASED: return "FORWARD_LOCK_RELEASED";
+    case UART_REVERSE_LOCK_REACHED: return "REVERSE_LOCK_REACHED";
+    case UART_REVERSE_LOCK_RELEASED: return "REVERSE_LOCK_RELEASED";
+    case UART_CLEAR_DATA_BUFFER: return "CLEAR_DATA_BUFFER";
+    case UART_START_EXECUTION: return "START_EXECUTION";
+    case UART_DATA_PACKAGE:
+        if (message.size == 8 && message.data[1] == ROTATION) {
+            return "ROTATION";
+        }
+        return "DATA_PACKAGE";
+    default: return "UNKNOWN_DATA";
+    }
+}
 }
 
-UART_Message UART_Message_Builder::create_clear_data_buffer_message(unsigned DeviceId) {
-    return UART_Message{UART_Message::MessageType::UART_DATA,           // Message type
-                    static_cast<uint8_t>(DeviceId),                     // Device ID    
-                    1,                                                  // Data size
-                    UART_Message::DataType::UART_CLEAR_DATA_BUFFER,     // Data type
-                    {}};                                                // Data
+UART_Message uartDataMessage(std::uint8_t deviceId, UART_Data_Type type) {
+    return {UART_DATA, deviceId, 1, {static_cast<std::uint8_t>(type)}};
 }
 
-UART_Message UART_Message_Builder::create_start_command_message() {
-    return UART_Message{UART_Message::MessageType::UART_COMMAND,        // Message type
-                    0,                                                  // Device ID    
-                    1,                                                  // Data size
-                    UART_Message::DataType::UART_COMMAND_START,         // Data type
-                    {}};                                                // Data
+UART_Message uartRotationMessage(std::uint8_t deviceId, RotationDirection direction,
+                                 float degrees, std::uint8_t rpm) {
+    const auto bits = std::bit_cast<std::uint32_t>(degrees);
+    return {UART_DATA, deviceId, 8, {
+        UART_DATA_PACKAGE, ROTATION, static_cast<std::uint8_t>(direction),
+        static_cast<std::uint8_t>(bits), static_cast<std::uint8_t>(bits >> 8),
+        static_cast<std::uint8_t>(bits >> 16), static_cast<std::uint8_t>(bits >> 24), rpm
+    }};
 }
 
-
-AsyncSerial::AsyncSerial(const std::string& port_name, uint32_t baudrate) 
-            : running_(false) {
-
-    port_.setPort(port_name);   // open UART port
-    port_.setBaudrate(baudrate);
-    port_.setTimeout(port_timeout_);
+std::vector<std::string> SerialTransport::listMasterCandidatePorts() {
+    std::vector<std::string> ports;
+    for (const auto& info : serial::list_ports()) {
+#if defined(__linux__)
+        if (!info.port.starts_with("/dev/ttyUSB") && !info.port.starts_with("/dev/ttyACM")) {
+            continue;
+        }
+#endif
+        ports.push_back(info.port);
+    }
+    std::ranges::sort(ports);
+    const auto duplicates = std::ranges::unique(ports);
+    ports.erase(duplicates.begin(), duplicates.end());
+    return ports;
 }
 
+void SerialTransport::openLog() {
+    if (log_.is_open()) {
+        return;
+    }
+    log_.open("monitor.log", std::ios::app);
+    if (!log_.is_open()) {
+        throw std::runtime_error("Не удалось открыть monitor.log");
+    }
+}
 
-void AsyncSerial::setPortName(const std::string &portName) {
-    std::lock_guard<std::mutex> lock(port_mutex_); 
-
+void SerialTransport::open(const std::string& portName, std::uint32_t baudRate) {
+    openLog();
     port_.setPort(portName);
+    port_.setBaudrate(baudRate);
+    auto timeout = serial::Timeout::simpleTimeout(25);
+    port_.setTimeout(timeout);
+    port_.open();
+    port_.flushInput();
 }
 
-void AsyncSerial::setPortBaudrate(unsigned baudrate) {
-    std::lock_guard<std::mutex> lock(port_mutex_); 
-
-    port_.setBaudrate(baudrate);
-}
-
-bool AsyncSerial::open() {
+void SerialTransport::close() noexcept {
     try {
-        port_.open();
-    } catch (const serial::SerialException &e) {
-        std::cerr << "SerialException: " << e.what() << '\n';
-        return false;
-    } catch (const serial::IOException &e) {
-        std::cerr << "IOException: " << e.what() << '\n';
-        return false;
+        if (port_.isOpen()) {
+            port_.close();
+        }
+    } catch (const std::exception& error) {
+        std::cerr << "UART close: " << error.what() << '\n';
     }
-
-    if (!port_.isOpen()) {
-        return false;
+    if (log_.is_open()) {
+        log_.close();
     }
-
-    running_ = true;
-    // Launch reader and writer thread
-    reader_ = std::thread(&AsyncSerial::readerLoop, this);
-    writer_ = std::thread(&AsyncSerial::writerLoop, this);
-
-    return true;
+    received_ = 0;
 }
 
-void AsyncSerial::close() {
-    running_ = false;
-    cv_.notify_all(); // writer wake up (if it waiting)
-
-    if (reader_.joinable()) reader_.join();
-    if (writer_.joinable()) writer_.join();
-
-    if (port_.isOpen()) port_.close();
-}
-
-AsyncSerial::~AsyncSerial() {
-    running_ = false;
-    cv_.notify_all(); // writer wake up (if it waiting)
-
-    if (reader_.joinable()) reader_.join();
-    if (writer_.joinable()) writer_.join();
-
-    if (port_.isOpen()) port_.close();
-}
-
-void AsyncSerial::sendMessage(const UART_Message &data) {
-    {
-        std::lock_guard<std::mutex> lock(write_queue_mutex_);
-        write_queue_.push(data);
+void SerialTransport::send(const UART_Message& message) {
+    const auto bytes = std::bit_cast<decltype(incoming_)>(message);
+    const auto written = port_.write(bytes.data(), bytes.size());
+    if (written != bytes.size()) {
+        logFrame("TX_PARTIAL", message, std::span{bytes}.first(written));
+        throw std::runtime_error("UART-кадр отправлен не полностью");
     }
-    cv_.notify_one(); // write thread wake up
+    logFrame("TX", message, bytes);
 }
 
-bool AsyncSerial::hasMessage() {
-    std::lock_guard<std::mutex> lock(read_queue_mutex_);
-
-    return !read_queue_.empty();
-}
-
-std::optional<UART_Message> AsyncSerial::getMessage() {
-    std::lock_guard<std::mutex> lock(read_queue_mutex_);
-
-    if (read_queue_.empty()) {
+std::optional<UART_Message> SerialTransport::receive() {
+    received_ += port_.read(incoming_.data() + received_, incoming_.size() - received_);
+    if (received_ != incoming_.size()) {
         return std::nullopt;
     }
-
-    std::optional<UART_Message> Tmp{read_queue_.front()};
-    read_queue_.pop();
-
-    return Tmp;
+    received_ = 0;
+    const auto message = std::bit_cast<UART_Message>(incoming_);
+    logFrame("RX", message, incoming_);
+    if ((message.message_type != UART_DATA && message.message_type != UART_COMMAND)
+        || message.size < 1 || message.size > sizeof(message.data)) {
+        throw std::runtime_error("Некорректный UART-кадр. Подключитесь к Master заново.");
+    }
+    return message;
 }
 
-void AsyncSerial::popMessage() {
-    std::lock_guard<std::mutex> lock(read_queue_mutex_);
+void SerialTransport::logSearchEvent(std::string_view status, std::string_view port, std::string_view detail) {
+    logEvent("SEARCH", status, port, detail);
+}
 
-    if (!read_queue_.empty()) {
-        read_queue_.pop();
+void SerialTransport::logConnectionLoss(std::string_view port, std::string_view detail) noexcept {
+    try {
+        logEvent("CONNECTION", "LOST", port, detail);
+    } catch (const std::exception& error) {
+        std::cerr << "UART connection lost on " << port << ": " << detail << " (" << error.what() << ")\n";
     }
 }
 
-void AsyncSerial::readerLoop() {
-    port_.flushInput(); // Flush input data buffer
-
-    while (running_) {
-        try {
-            // Читаем все уже пришедшие байты (неблокирующий вызов благодаря available
-
-            std::lock_guard<std::mutex> lock(port_mutex_); 
-            size_t available = port_.available(); 
-            if (available >= UART_Message::MESSAGE_SIZE) {
-                std::vector<uint8_t> RxData;
-            
-                size_t received = port_.read(RxData, UART_Message::MESSAGE_SIZE);
-                if (received == UART_Message::MESSAGE_SIZE) {
-                    std::lock_guard<std::mutex> lock(read_queue_mutex_);
-                    read_queue_.push(UART_Message{RxData});
-                }
-            } else {
-                // Если данных нет, немного спим, чтобы не грузить процессор
-                std::this_thread::sleep_for(std::chrono::milliseconds(10));
-            }
-        } catch (const std::exception& e) {
-            std::cerr << "Uart reading error: " << e.what() << std::endl;
-            // TODO try to reconnect to current port
-            running_ = false;
-            break;
-        }
+void SerialTransport::logEvent(std::string_view event, std::string_view status, std::string_view port,
+                               std::string_view detail) {
+    openLog();
+    log_ << logTimestamp() << ' ' << event;
+    if (!port.empty()) {
+        log_ << std::format(" port={:?}", port);
     }
+    log_ << " status=" << status;
+    if (!detail.empty()) {
+        log_ << std::format(" detail={:?}", detail);
+    }
+    finishLogLine();
 }
 
-void AsyncSerial::writerLoop() {
-    port_.flushOutput(); // Flush output buffer before start sending data
+void SerialTransport::logFrame(std::string_view direction, const UART_Message& message,
+                               std::span<const std::uint8_t> bytes) {
+    log_ << logTimestamp() << std::format(" {} {} pump_id={} size={} bytes=", direction,
+                                         messageName(message), message.device_id, message.size);
+    for (const auto byte : bytes) {
+        log_ << std::format(" {:02X}", byte);
+    }
+    finishLogLine();
+}
 
-    while (running_) {
-        UART_Message data;
-
-        {
-            std::unique_lock<std::mutex> lock(write_queue_mutex_);
-            cv_.wait(lock, [this] {
-                return !write_queue_.empty() || !running_;
-            });
-            if (!running_) break;
-            data = write_queue_.front();
-            write_queue_.pop();
-        }
-
-        try {
-
-            std::cerr << "Send data: \n";
-            for (const auto &II : data.to_vector()) {
-                std::cerr << static_cast<int>(II) << '\n';
-            }
-
-            port_.write(data.to_vector());
-        } catch (const std::exception& e) {
-            std::cerr << "UART port write error: " << e.what() << std::endl;
-        }
+void SerialTransport::finishLogLine() {
+    log_ << '\n' << std::flush;
+    if (!log_) {
+        throw std::runtime_error("Не удалось записать событие в monitor.log");
     }
 }

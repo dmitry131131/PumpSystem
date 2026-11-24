@@ -13,6 +13,19 @@
 #include "IntCallbacks.h"
 #include "State.h"
 
+// A complete 11-byte frame at 115200 baud takes about 1 ms on the wire.
+static const uint32_t uartRxGapMs = 25U;
+static UART_Message uartRxMessage;
+static uint8_t uartRxByte;
+static size_t uartRxSize;
+static uint32_t uartRxLastTick;
+static bool uartRxDropUntilGap;
+
+HAL_StatusTypeDef StartMonitorUartRx(UART_HandleTypeDef *huart)
+{
+  return HAL_UART_Receive_IT(huart, &uartRxByte, 1U);
+}
+
 /**
  * @brief  Пришло сообщение в CAN FIFO0.
  *         Отфильтровываем по своему ID и кладём в CANRxFIFO.
@@ -63,14 +76,45 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 }
 
 /**
- * @brief  Полный кадр принят по UART — кладём в очередь и перезапускаем приём.
+ * @brief  Accumulate UART bytes into a frame and discard incomplete bursts after a gap.
  */
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
-  fifo_add(UARTRxFIFO, &UARTRxTmpMessage);
+  // HAL can call this before its error callback. Leave recovery to that callback.
+  if (huart != &huart1 || HAL_UART_GetError(huart) != HAL_UART_ERROR_NONE) {
+    return;
+  }
 
-  HAL_UART_Receive_IT(&huart1, (uint8_t *)&UARTRxTmpMessage,
-                      sizeof(UART_Message));
+  const uint32_t now = HAL_GetTick();
+  if (now - uartRxLastTick >= uartRxGapMs) {
+    uartRxSize = 0;
+    uartRxDropUntilGap = false;
+  }
+  uartRxLastTick = now;
+
+  if (!uartRxDropUntilGap) {
+    ((uint8_t *)&uartRxMessage)[uartRxSize++] = uartRxByte;
+    if (uartRxSize == sizeof(uartRxMessage)) {
+      fifo_add(UARTRxFIFO, &uartRxMessage);
+      uartRxSize = 0;
+    }
+  }
+
+  StartMonitorUartRx(huart);
+}
+
+void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
+{
+  if (huart != &huart1) {
+    return;
+  }
+
+  uartRxSize = 0;
+  uartRxLastTick = HAL_GetTick();
+  uartRxDropUntilGap = true;
+  HAL_UART_AbortReceive(huart);
+  __HAL_UART_CLEAR_OREFLAG(huart); // Read SR and DR to clear STM32F1 RX errors.
+  StartMonitorUartRx(huart);
 }
 
 /**

@@ -17,6 +17,7 @@
 #include "CANRuntime.h"
 #include "Device.h"
 #include "FIFO.h"
+#include "IntCallbacks.h"
 #include "State.h"
 #include "UART.h"
 #include "UARTRuntime.h"
@@ -70,16 +71,16 @@ int main(void)
   HAL_GPIO_WritePin(BOARD_LED_PORT, BOARD_LED_PIN, GPIO_PIN_SET);
 
   // Start receiving UART messages
-  HAL_UART_Receive_IT(&huart1, (uint8_t *)&UARTRxTmpMessage, sizeof(UART_Message));
+  if (StartMonitorUartRx(&huart1) != HAL_OK) {
+    Error_Handler();
+  }
 
   while (1) {
-    // Indicated Registration
-    if (RegisteredByMonitor) {
-      HAL_GPIO_WritePin(BOARD_LED_PORT, BOARD_LED_PIN, GPIO_PIN_RESET);
-    }
-
     // UART runtime
     UARTRuntime(&huart1, CANTxFIFO, UARTRxFIFO, UARTTxFIFO);
+
+    // The registration LED is active low.
+    HAL_GPIO_WritePin(BOARD_LED_PORT, BOARD_LED_PIN, RegisteredByMonitor ? GPIO_PIN_RESET : GPIO_PIN_SET);
 
     // TODO Handle CAN error and CAN bus-off situations
     // CAN runtime

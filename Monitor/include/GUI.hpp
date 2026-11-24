@@ -1,32 +1,40 @@
 #pragma once
+
+#include <memory>
+
 #include "webview/webview.h"
 #include "PumpMonitor.hpp"
 
+// Hosts the Monitor web interface and connects it to PumpMonitor.
 class GUI final {
-    static constexpr const char* GUI_TITLE = "Pump system monitor";
-    static constexpr const int DEFAULT_GUI_WIDTH = 720;
-    static constexpr const int DEFAULT_GUI_HEIGHT = 480;
-    static constexpr const char* HTML_PATH = HTML_FILE;   // HTML_PATH defined in CMakeLists.txt
-
-    std::atomic<bool> runnning_;
-
-    PumpMonitor &monitor_;
-    AsyncSerial &serial_;
-    webview::webview window_{false, nullptr};
-    std::mutex window_mutex_;
-
-    void registerCallbacks();
-    void sync();
-
 public:
-    GUI(PumpMonitor &monitor, AsyncSerial &serial) : runnning_(true), monitor_(monitor), serial_(serial) {
-        // Launch GUI thread
-        window_.set_title(GUI_TITLE);
-        window_.set_size(DEFAULT_GUI_WIDTH, DEFAULT_GUI_HEIGHT, WEBVIEW_HINT_NONE);
-        window_.navigate(HTML_PATH);
-    };
+    // Creates the window and initializes the monitor with the default port and baud rate.
+    GUI(std::string defaultPort, std::uint32_t baudRate);
 
-    bool running() const { return runnning_; }
+    // Stops the monitor and invalidates queued updates before the window is destroyed.
+    ~GUI();
 
+    // Loads the interface and runs the window event loop.
     void run();
+
+private:
+    // Binds JavaScript calls to native Monitor operations.
+    void registerCallbacks();
+
+    // Queues a fresh monitor snapshot for rendering on the UI thread.
+    void publishState();
+
+#if defined(WEBVIEW_GTK)
+    // Opens the native save dialog for a configuration export request.
+    void savePumpConfiguration(std::string requestId);
+
+    // Writes the configuration if the user accepts and resolves the JavaScript request.
+    void finishSavingPumpConfiguration(int response);
+    GtkNativeDialog* saveDialog_ = nullptr;
+    std::string saveRequestId_;
+#endif
+
+    webview::webview window_{false, nullptr};
+    std::shared_ptr<int> updatesActive_ = std::make_shared<int>(0);
+    PumpMonitor monitor_;
 };

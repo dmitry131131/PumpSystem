@@ -49,8 +49,15 @@ UART_Message CreateUARTReverseLockReleasedMessage(uint8_t DeviceId) {
 }
 
 UART_Message CreateUARTMasterResponseMessage() {
-    CREATE_SINGLE_SIZE_MESSAGE(Msg, 0);
+    CREATE_SINGLE_SIZE_MESSAGE(Msg, UART_MASTER_ADDRESS);
     Msg.data[0] = UART_MASTER_RESPONSE;
+
+    return Msg;
+}
+
+UART_Message CreateUARTResponseMessage(void) {
+    CREATE_SINGLE_SIZE_MESSAGE(Msg, UART_MASTER_ADDRESS);
+    Msg.data[0] = UART_RESPONSE;
 
     return Msg;
 }

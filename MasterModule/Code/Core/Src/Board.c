@@ -123,7 +123,7 @@ void HAL_UART_MspInit(UART_HandleTypeDef *huart)
 
   GPIO_InitStruct.Pin = BOARD_UART_RX_PIN;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Pull = GPIO_PULLUP; // Keep RX at UART idle when the adapter is disconnected.
   HAL_GPIO_Init(BOARD_UART_RX_PORT, &GPIO_InitStruct);
 
   HAL_NVIC_SetPriority(USART1_IRQn, BOARD_NVIC_PRIO_UART, 0U);
