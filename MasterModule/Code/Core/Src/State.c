@@ -17,7 +17,6 @@ fifo_t CANTxFIFO = NULL;
 
 /* ------------------------------- UART ------------------------------------ */
 
-UART_Message UARTRxTmpMessage = {};
 UART_Message UARTTxTmpMessage = {};
 fifo_t UARTRxFIFO = NULL;
 fifo_t UARTTxFIFO = NULL;

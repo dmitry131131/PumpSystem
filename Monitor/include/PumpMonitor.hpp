@@ -23,6 +23,9 @@ public:
     // Current phase of the Master connection or automatic search.
     enum class Connection { Disconnected, Connecting, Searching, CancellingSearch, Connected };
 
+    // Units accepted by manual rotation.
+    enum class RotationUnit { Turns, Microliters };
+
     // User-defined name and calibrated volume per turn in microliters, if set.
     struct PumpSettings final {
         std::string name;  // User-defined display name.
@@ -36,7 +39,7 @@ public:
     };
 
     // Tracks command dispatch and provides feedback for the selected pump.
-    struct RotationResult {
+    struct RotationResult final {
         std::uint8_t pumpId;  // Pump targeted by the command.
         bool pending;  // True until dispatch finishes.
         bool error;  // True if dispatch failed.
@@ -44,10 +47,11 @@ public:
     };
 
     // A copy of the connection, known pumps, and latest rotation feedback for the UI.
-    struct Snapshot {
+    struct Snapshot final {
         Connection connection = Connection::Disconnected;  // Current connection or search phase.
         std::string port;  // Selected or connected Master port.
         std::string searchPort;  // Candidate currently being probed.
+        bool connectionLost = false;  // Indicates that an established session ended unexpectedly.
         std::string connectionError;  // Most recent connection error, if any.
         std::map<std::uint8_t, Pump> pumps;  // Known pumps indexed by ID.
         std::optional<RotationResult> rotation;  // Latest rotation dispatch status, if available.
@@ -68,8 +72,9 @@ public:
     // Requests cancellation of the active automatic search.
     void cancelMasterSearch();
 
-    // Validates and queues a rotation command. An empty result means the request was accepted.
-    std::string rotate(int pumpId, int turns, RotationDirection direction);
+    // Queues whole turns or converts a volume using the pump's current settings.
+    // An empty result means the request was accepted.
+    std::string rotate(int pumpId, double amount, RotationDirection direction, RotationUnit unit = RotationUnit::Turns);
 
     // Adds a new pump with an offline status and empty settings.
     std::string addPump(int pumpId);
@@ -88,15 +93,15 @@ private:
     enum class RegistrationStatus { Found, Timeout, OpenError, UartError, Cancelled };
 
     // Carries the registration outcome and an error message when applicable.
-    struct RegistrationResult {
+    struct RegistrationResult final {
         RegistrationStatus status;  // Outcome of the port probe.
         std::string error;  // Failure detail, if available.
     };
 
-    // Stores the target pump, whole turns, and direction for a queued command.
-    struct RotationRequest {
+    // Stores the target pump, angle, and direction for a queued command.
+    struct RotationRequest final {
         std::uint8_t pumpId;  // Address of the target pump.
-        int turns;  // Number of full revolutions to command.
+        float degrees;  // Angle sent to Master.
         RotationDirection direction;  // Direction of motor rotation.
     };
 
@@ -109,7 +114,7 @@ private:
     // Opens one port and waits for a valid Master registration response.
     RegistrationResult registerMaster(const std::string& port, std::stop_token stop, std::stop_token cancel = {});
 
-    // Receives pump status frames and dispatches queued rotations until stopped or disconnected.
+    // Polls Master, receives pump status frames, and dispatches queued rotations.
     void runSession(std::stop_token stop);
 
     // Updates the reported pump status and adds an unknown pump when first seen.

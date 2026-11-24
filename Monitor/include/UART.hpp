@@ -15,7 +15,7 @@
 #include "BusConnectionConfig.h"
 #include "UARTConnectionConfig.h"
 
-// Exchanges UART frames and writes frame and search events to monitor.log.
+// Exchanges UART frames and writes transport events to monitor.log.
 class SerialTransport final {
 public:
     // Returns a sorted list of unique serial port names eligible for automatic search.
@@ -36,12 +36,18 @@ public:
     // Logs a search status with an optional port and error detail.
     void logSearchEvent(std::string_view status, std::string_view port = {}, std::string_view detail = {});
 
+    // Logs the cause of an established connection failing.
+    void logConnectionLoss(std::string_view port, std::string_view detail) noexcept;
+
 private:
     // Opens the shared log in append mode if needed.
     void openLog();
 
     // Flushes the completed log line and reports a write failure.
     void finishLogLine();
+
+    // Writes a timestamped transport event with optional port and details.
+    void logEvent(std::string_view event, std::string_view status, std::string_view port, std::string_view detail);
 
     // Records the frame direction, decoded fields, and raw bytes.
     void logFrame(std::string_view direction, const UART_Message& message,

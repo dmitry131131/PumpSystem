@@ -48,10 +48,24 @@
 
                     <form id="rotateForm">
                         <fieldset id="rotationFields" disabled>
-                            <label for="turnsInput">Количество оборотов</label>
-                            <input type="number" id="turnsInput" min="1" step="1" value="1"
-                                   aria-describedby="turnsHint" required>
-                            <p id="turnsHint" class="muted"></p>
+                            <label for="rotationUnit">Задать вращение</label>
+                            <select id="rotationUnit">
+                                <option value="turns">В оборотах</option>
+                                <option value="volume">По объёму</option>
+                            </select>
+
+                            <div id="rotationTurns" class="rotation-amount">
+                                <label for="turnsInput">Количество оборотов</label>
+                                <input type="number" id="turnsInput" min="1" step="1" value="1"
+                                       aria-describedby="turnsHint" required>
+                                <p id="turnsHint" class="muted"></p>
+                            </div>
+                            <div id="rotationVolume" class="rotation-amount" hidden>
+                                <label for="volumeInput">Объём подачи, мкл</label>
+                                <input type="text" id="volumeInput" inputmode="decimal" autocomplete="off"
+                                       aria-describedby="volumeHint" required disabled>
+                                <p id="volumeHint" class="muted"></p>
+                            </div>
 
                             <label for="directionSelect">Направление</label>
                             <select id="directionSelect">

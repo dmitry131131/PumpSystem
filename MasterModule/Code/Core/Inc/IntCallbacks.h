@@ -13,10 +13,12 @@
 
 #include "stm32f1xx_hal.h"
 
+HAL_StatusTypeDef StartMonitorUartRx(UART_HandleTypeDef *huart);
 void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *can);
 void HAL_CAN_ErrorCallback(CAN_HandleTypeDef *can);
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin);
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart);
+void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart);
 void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart);
 
 #endif /* INT_CALLBACKS_H */

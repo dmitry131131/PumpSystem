@@ -3,14 +3,22 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <limits>
 #include <stdexcept>
 #include <utility>
 
 namespace {
 using namespace std::chrono_literals;
 
-constexpr std::uint8_t masterAddress = 0;
+constexpr std::uint8_t masterAddress = UART_MASTER_ADDRESS;
+constexpr auto masterPollInterval = std::chrono::milliseconds{UART_POLL_INTERVAL_MS};
+constexpr unsigned maxToleratedMasterMisses = 2;
 constexpr std::uint8_t manualRpm = 6;
+// Match the motor and microstep configuration in the pump firmware.
+constexpr int fullStepsPerTurn = 200;
+constexpr int microstepMultiplier = 16;
+constexpr int microstepsPerTurn = fullStepsPerTurn * microstepMultiplier;
+constexpr int degreesPerTurn = 360;
 
 bool validPumpId(int id) {
     return id >= PumpMonitor::minPumpId && id <= PumpMonitor::maxPumpId;
@@ -29,6 +37,10 @@ std::string settingsError(int id, const PumpMonitor::PumpSettings& settings) {
 
 bool isStatusMessage(const UART_Message& message) {
     return message.message_type == UART_DATA && message.size == 1;
+}
+
+bool isMasterMessage(const UART_Message& message, UART_Data_Type type) {
+    return isStatusMessage(message) && message.device_id == masterAddress && message.data[0] == type;
 }
 }
 
@@ -62,6 +74,7 @@ std::string PumpMonitor::connect(std::string port) {
         }
         state_.connection = Connection::Connecting;
         state_.port = std::move(port);
+        state_.connectionLost = false;
         state_.connectionError.clear();
     }
     changed_();
@@ -77,6 +90,7 @@ std::string PumpMonitor::findMaster() {
         }
         searchStop_ = std::stop_source{};
         state_.connection = Connection::Searching;
+        state_.connectionLost = false;
         state_.connectionError.clear();
     }
     changed_();
@@ -142,13 +156,18 @@ std::string PumpMonitor::importPumpSettings(std::map<int, PumpSettings> settings
     return {};
 }
 
-std::string PumpMonitor::rotate(int pumpId, int turns, RotationDirection direction) {
-    if (!validPumpId(pumpId) || turns < 1 || turns > maxTurns
-        || (direction != FORWARD && direction != REVERSE)) {
-        return "Проверьте насос, число оборотов и направление.";
+std::string PumpMonitor::rotate(int pumpId, double amount, RotationDirection direction, RotationUnit unit) {
+    if (!validPumpId(pumpId) || (direction != FORWARD && direction != REVERSE)) {
+        return "Проверьте насос и направление вращения.";
+    }
+    if (!std::isfinite(amount) || amount <= 0) {
+        return "Введите положительный объём или число оборотов.";
+    }
+    if (unit == RotationUnit::Turns && (amount > maxTurns || std::trunc(amount) != amount)) {
+        return "Введите от 1 до " + std::to_string(maxTurns) + " целых оборотов.";
     }
 
-    const RotationRequest request{static_cast<std::uint8_t>(pumpId), turns, direction};
+    RotationRequest request{static_cast<std::uint8_t>(pumpId), 0.0f, direction};
     {
         std::lock_guard lock(mutex_);
         if (const auto error = rotationError(request); !error.empty()) {
@@ -157,6 +176,29 @@ std::string PumpMonitor::rotate(int pumpId, int turns, RotationDirection directi
         if (state_.rotation && state_.rotation->pending) {
             return "Предыдущая команда ещё отправляется.";
         }
+
+        if (unit == RotationUnit::Microliters) {
+            const auto volumePerTurn = state_.pumps.at(request.pumpId).settings.volumePerTurnMicroliters;
+            if (!volumePerTurn) {
+                return "Задайте «Объём за 1 оборот» во вкладке «Настройки насосов».";
+            }
+            const double turns = amount / *volumePerTurn;
+            const double microsteps = std::round(turns * microstepsPerTurn);
+            if (microsteps < 1) {
+                return "Заданный объём слишком мал для одного микрошага.";
+            }
+            if (microsteps > maxTurns * microstepsPerTurn) {
+                return "Для заданного объёма требуется больше " + std::to_string(maxTurns) + " оборотов.";
+            }
+            request.degrees = static_cast<float>(microsteps * degreesPerTurn / microstepsPerTurn);
+            // The AVR truncates the pulse count, so compensate if its float calculation falls below the target.
+            if (request.degrees * fullStepsPerTurn * microstepMultiplier / degreesPerTurn < microsteps) {
+                request.degrees = std::nextafter(request.degrees, std::numeric_limits<float>::infinity());
+            }
+        } else {
+            request.degrees = static_cast<float>(amount * degreesPerTurn);
+        }
+
         rotationRequest_ = request;
         state_.rotation = RotationResult{request.pumpId, true, false, "Отправка команды…"};
     }
@@ -197,6 +239,7 @@ void PumpMonitor::run(std::stop_token stop) {
         }
 
         std::string error;
+        bool connected = false;
         try {
             if (cancel.stop_possible()) {
                 port = searchForMaster(stop, cancel, port);
@@ -208,12 +251,11 @@ void PumpMonitor::run(std::stop_token stop) {
                 }
             }
 
-            bool connected;
             {
                 std::lock_guard lock(mutex_);
                 connected = !port.empty() && !stop.stop_requested() && !cancel.stop_requested();
                 if (connected) {
-                    state_.port = std::move(port);
+                    state_.port = port;
                     state_.searchPort.clear();
                     state_.connection = Connection::Connected;
                 }
@@ -225,7 +267,11 @@ void PumpMonitor::run(std::stop_token stop) {
                 serial_.logSearchEvent("CANCELLED");
             }
         } catch (const std::exception& exception) {
-            error = exception.what();
+            if (connected) {
+                serial_.logConnectionLoss(port, exception.what());
+            } else {
+                error = exception.what();
+            }
         }
         serial_.close();
         if (stop.stop_requested()) {
@@ -236,6 +282,7 @@ void PumpMonitor::run(std::stop_token stop) {
             std::lock_guard lock(mutex_);
             state_.connection = Connection::Disconnected;
             state_.searchPort.clear();
+            state_.connectionLost = connected;
             if (!cancel.stop_requested()) {
                 state_.connectionError = std::move(error);
             }
@@ -326,8 +373,7 @@ PumpMonitor::RegistrationResult PumpMonitor::registerMaster(const std::string& p
                 return {Timeout, "Master не ответил на регистрацию."};
             }
             const auto message = serial_.receive();
-            if (message && isStatusMessage(*message) && message->device_id == masterAddress
-                && message->data[0] == UART_MASTER_RESPONSE) {
+            if (message && isMasterMessage(*message, UART_MASTER_RESPONSE)) {
                 return {Found, {}};
             }
         }
@@ -338,13 +384,30 @@ PumpMonitor::RegistrationResult PumpMonitor::registerMaster(const std::string& p
 }
 
 void PumpMonitor::runSession(std::stop_token stop) {
+    using Clock = std::chrono::steady_clock;
+    auto nextPoll = Clock::now();
+    unsigned unansweredRequests = 0;
     while (!stop.stop_requested()) {
         if (const auto message = serial_.receive()) {
-            handleStatus(*message);
+            if (isMasterMessage(*message, UART_RESPONSE)) {
+                unansweredRequests = 0;
+            } else {
+                handleStatus(*message);
+            }
         }
-        if (!stop.stop_requested()) {
-            sendPendingRotation();
+        if (stop.stop_requested()) {
+            break;
         }
+        if (Clock::now() >= nextPoll) {
+            if (unansweredRequests > maxToleratedMasterMisses) {
+                throw std::runtime_error("Master не ответил на UART_REQUEST. Запросов без ответа: "
+                                         + std::to_string(unansweredRequests));
+            }
+            serial_.send(uartDataMessage(masterAddress, UART_REQUEST));
+            ++unansweredRequests;
+            nextPoll = Clock::now() + masterPollInterval;
+        }
+        sendPendingRotation();
     }
 }
 
@@ -400,8 +463,7 @@ void PumpMonitor::sendPendingRotation() {
     if (error.empty()) {
         // Master forwards these frames in order. The firmware does not acknowledge execution.
         serial_.send(uartDataMessage(request.pumpId, UART_CLEAR_DATA_BUFFER));
-        serial_.send(uartRotationMessage(request.pumpId, request.direction,
-                                         request.turns * 360.0f, manualRpm));
+        serial_.send(uartRotationMessage(request.pumpId, request.direction, request.degrees, manualRpm));
         serial_.send(uartDataMessage(request.pumpId, UART_START_EXECUTION));
     }
 

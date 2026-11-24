@@ -34,6 +34,8 @@ std::string_view messageName(const UART_Message& message) {
     switch (message.data[0]) {
     case UART_MASTER_REGISTRATION: return "MASTER_REGISTRATION";
     case UART_MASTER_RESPONSE: return "MASTER_RESPONSE";
+    case UART_REQUEST: return "UART_REQUEST";
+    case UART_RESPONSE: return "UART_RESPONSE";
     case UART_DEVICE_ONLINE: return "DEVICE_ONLINE";
     case UART_DEVICE_OFFLINE: return "DEVICE_OFFLINE";
     case UART_FORWARD_LOCK_REACHED: return "FORWARD_LOCK_REACHED";
@@ -142,8 +144,21 @@ std::optional<UART_Message> SerialTransport::receive() {
 }
 
 void SerialTransport::logSearchEvent(std::string_view status, std::string_view port, std::string_view detail) {
+    logEvent("SEARCH", status, port, detail);
+}
+
+void SerialTransport::logConnectionLoss(std::string_view port, std::string_view detail) noexcept {
+    try {
+        logEvent("CONNECTION", "LOST", port, detail);
+    } catch (const std::exception& error) {
+        std::cerr << "UART connection lost on " << port << ": " << detail << " (" << error.what() << ")\n";
+    }
+}
+
+void SerialTransport::logEvent(std::string_view event, std::string_view status, std::string_view port,
+                               std::string_view detail) {
     openLog();
-    log_ << logTimestamp() << " SEARCH";
+    log_ << logTimestamp() << ' ' << event;
     if (!port.empty()) {
         log_ << std::format(" port={:?}", port);
     }

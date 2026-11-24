@@ -115,6 +115,7 @@ json snapshotJson(const PumpMonitor::Snapshot& state) {
     }
 
     return {{"connection", connection}, {"port", state.port}, {"searchPort", state.searchPort},
+            {"connectionLost", state.connectionLost},
             {"connectionError", state.connectionError}, {"pumps", std::move(pumps)},
             {"rotation", std::move(rotation)}, {"maxTurns", PumpMonitor::maxTurns},
             {"minPumpId", PumpMonitor::minPumpId}, {"maxPumpId", PumpMonitor::maxPumpId}};
@@ -176,15 +177,18 @@ void GUI::registerCallbacks() {
         try {
             const auto request = json::parse(args).at(0);
             const auto id = pumpIdFromJson(request.at("id"));
-            const auto& turns = request.at("turns");
             const auto direction = request.at("direction").get<std::string>();
-            if (!id || !turns.is_number_integer() || turns.get<double>() < 1
-                || turns.get<double>() > PumpMonitor::maxTurns
-                || (direction != "forward" && direction != "reverse")) {
-                return reply("Проверьте насос, число оборотов и направление.");
+            const bool byVolume = request.contains("volumeMicroliters");
+            if (!id || byVolume == request.contains("turns") || (direction != "forward" && direction != "reverse")) {
+                return reply("Проверьте насос, величину и направление вращения.");
             }
-            return reply(monitor_.rotate(*id, turns.get<int>(),
-                                         direction == "forward" ? FORWARD : REVERSE));
+            const auto& amount = request.at(byVolume ? "volumeMicroliters" : "turns");
+            if (!(byVolume ? amount.is_number() : amount.is_number_integer())) {
+                return reply("Введите корректный объём или целое число оборотов.");
+            }
+            using enum PumpMonitor::RotationUnit;
+            return reply(monitor_.rotate(*id, amount.get<double>(), direction == "forward" ? FORWARD : REVERSE,
+                                         byVolume ? Microliters : Turns));
         } catch (const json::exception&) {
             return reply("Некорректные параметры вращения.");
         }

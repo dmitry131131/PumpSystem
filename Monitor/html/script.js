@@ -16,7 +16,11 @@ const selectedStatus = byId("selectedPumpStatus");
 const emptySelection = byId("emptySelection");
 const rotateForm = byId("rotateForm");
 const rotationFields = byId("rotationFields");
+const rotationUnit = byId("rotationUnit");
 const turnsInput = byId("turnsInput");
+const volumeInput = byId("volumeInput");
+const volumeHint = byId("volumeHint");
+const rotateButton = byId("rotateButton");
 const directionSelect = byId("directionSelect");
 const rotationFeedback = byId("rotationFeedback");
 const settingsRows = byId("settingsPumpRows");
@@ -87,6 +91,13 @@ function showRotationFeedback(message, error = false) {
     rotationFeedback.classList.toggle("error", error);
 }
 
+function parsePositiveDecimal(text) {
+    const normalized = text.trim().replace(",", ".");
+    const value = Number(normalized);
+    const decimal = /^(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i;
+    return decimal.test(normalized) && Number.isFinite(value) && value > 0 ? value : NaN;
+}
+
 function updateConnectControls() {
     const connection = state?.connection;
     const searching = connection === "searching";
@@ -153,6 +164,16 @@ function renderSelection() {
     renderStatus(selectedStatus, pump.status);
     rotationFields.disabled = pump.status === "offline" || submittingRotation || Boolean(state.rotation?.pending);
 
+    const byVolume = rotationUnit.value === "volume";
+    const volumePerTurn = pump.volumePerTurnMicroliters;
+    byId("rotationTurns").hidden = turnsInput.disabled = byVolume;
+    byId("rotationVolume").hidden = !byVolume;
+    volumeInput.disabled = !byVolume || !volumePerTurn;
+    rotateButton.disabled = byVolume && !volumePerTurn;
+    volumeHint.textContent = volumePerTurn
+        ? `${String(volumePerTurn).replace(".", ",")} мкл за оборот`
+        : "Задайте «Объём за 1 оборот» во вкладке «Настройки насосов».";
+
     const forward = directionSelect.options[0];
     const reverse = directionSelect.options[1];
     forward.disabled = pump.status === "forwardLocked";
@@ -187,13 +208,13 @@ window.renderMonitor = function (snapshot) {
     state = snapshot;
     updateConnectControls();
     connectionStatus.textContent = {
-        disconnected: "Master не подключён",
+        disconnected: state.connectionLost ? "Связь с Master потеряна" : "Master не подключён",
         connecting: "Ожидание ответа Master",
         searching: state.searchPort ? `Поиск Master… ${state.searchPort}` : "Поиск Master…",
         cancellingSearch: "Отмена поиска Master…",
         connected: "Master подключён",
     }[state.connection];
-    connectionStatus.dataset.status = state.connection;
+    connectionStatus.dataset.status = state.connectionLost ? "lost" : state.connection;
     showConnectionError(state.connectionError);
 
     updatePumpRows(state.pumps, pumpRows, rows, selectManualPump);
@@ -318,10 +339,8 @@ settingsForm.addEventListener("submit", (event) => {
         return;
     }
 
-    const raw = draft.volume.trim().replace(",", ".");
-    const volume = raw ? Number(raw) : null;
-    const decimal = /^(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i;
-    if (raw && (!decimal.test(raw) || !Number.isFinite(volume) || volume <= 0)) {
+    const volume = draft.volume.trim() ? parsePositiveDecimal(draft.volume) : null;
+    if (Number.isNaN(volume)) {
         showSettingsFeedback("Введите объём за 1 оборот больше нуля или оставьте поле пустым.", true);
         pumpVolumeInput.focus();
         return;
@@ -406,13 +425,26 @@ findMasterButton.addEventListener("click", () => {
     }
 });
 
+rotationUnit.addEventListener("change", renderSelection);
+
 rotateForm.addEventListener("submit", async (event) => {
     event.preventDefault();
-    if (rotationFields.disabled || selectedId === null) {
+    if (rotationFields.disabled || rotateButton.disabled || selectedId === null) {
         return;
     }
     const id = selectedId;
-    const request = { id, turns: turnsInput.valueAsNumber, direction: directionSelect.value };
+    const request = { id, direction: directionSelect.value };
+    if (rotationUnit.value === "volume") {
+        const volume = parsePositiveDecimal(volumeInput.value);
+        if (Number.isNaN(volume)) {
+            showRotationFeedback("Введите объём подачи больше нуля.", true);
+            volumeInput.focus();
+            return;
+        }
+        request.volumeMicroliters = volume;
+    } else {
+        request.turns = turnsInput.valueAsNumber;
+    }
     submittingRotation = true;
     renderSelection();
     let error = "";

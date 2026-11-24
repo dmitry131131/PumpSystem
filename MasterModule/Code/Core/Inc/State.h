@@ -38,9 +38,7 @@ extern fifo_t CANTxFIFO;
 
 /* ------------------------------- UART ------------------------------------ */
 
-/* Буфер приёма/передачи прерываниями. Заполняется в колбэках,
-   читается/отправляется из main-цикла. */
-extern UART_Message UARTRxTmpMessage;
+/* Буфер активной передачи по UART через прерывания. */
 extern UART_Message UARTTxTmpMessage;
 
 extern fifo_t UARTRxFIFO;

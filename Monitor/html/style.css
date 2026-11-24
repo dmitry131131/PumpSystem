@@ -219,7 +219,7 @@ main {
     background: #158373;
 }
 
-.status:is([data-status="connecting"], [data-status="searching"],
+.status:is([data-status="connecting"], [data-status="searching"], [data-status="lost"],
            [data-status="cancellingSearch"], [data-status$="Locked"])::before {
     background: #af6814;
 }
@@ -286,6 +286,12 @@ fieldset {
 }
 
 fieldset label:not(:first-child) {
+    margin-top: 8px;
+}
+
+.rotation-amount {
+    display: grid;
+    gap: 8px;
     margin-top: 8px;
 }
 

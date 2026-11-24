@@ -1,6 +1,9 @@
 #pragma once
 #include <stdint.h>
 
+#define UART_MASTER_ADDRESS 0U
+#define UART_POLL_INTERVAL_MS 2000U
+
 typedef enum {
     UART_COMMAND,
     UART_DATA
@@ -14,6 +17,8 @@ typedef enum {
 typedef enum {
     UART_MASTER_REGISTRATION   = 0x10,   // By monitor to master (use to find master module in COM port list)
     UART_MASTER_RESPONSE       = 0x11,   // By master to monitor after UART_MASTER_REGISTRATION receive
+    UART_REQUEST               = 0x12,   // Monitor checks the active session
+    UART_RESPONSE              = 0x13,   // Master acknowledges UART_REQUEST
 
     UART_DEVICE_ONLINE         = 0x20,   // By master to monitor if device online
     UART_DEVICE_OFFLINE        = 0x21,   // By master to monitor if device offline
