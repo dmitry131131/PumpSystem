@@ -112,6 +112,11 @@
                         <label for="pumpVolumeInput">Объём за 1 оборот, мкл</label>
                         <input id="pumpVolumeInput" type="text" inputmode="decimal" autocomplete="off"
                                placeholder="Например, 12,5">
+                        <div class="calibration-control">
+                            <button id="openCalibration" type="button" class="secondary-button"
+                                    aria-describedby="calibrationHint" disabled>Калибровать…</button>
+                            <p id="calibrationHint" class="muted"></p>
+                        </div>
                         <div class="settings-actions">
                             <button id="applyPumpSettings" type="submit" disabled>Применить</button>
                             <button id="resetPumpSettings" class="secondary-button" type="button" hidden>Отменить правки</button>
@@ -122,5 +127,40 @@
             </section>
         </div>
     </main>
+
+    <dialog id="calibrationDialog" aria-labelledby="calibrationTitle">
+        <div class="calibration-header">
+            <div>
+                <h2 id="calibrationTitle">Калибровка насоса</h2>
+                <p id="calibrationPump" class="muted"></p>
+            </div>
+            <button id="closeCalibration" type="button" class="secondary-button">Закрыть</button>
+        </div>
+        <form id="calibrationStartForm" class="calibration-form" novalidate>
+            <p id="calibrationCurrent"></p>
+            <label for="calibrationTarget">Пробный объём, мкл</label>
+            <input id="calibrationTarget" type="text" inputmode="decimal" autocomplete="off"
+                   aria-describedby="calibrationTurns" required>
+            <p id="calibrationTurns" class="muted"></p>
+            <p class="muted">Перед пробой дождитесь остановки насоса. Насос будет вращаться вперёд.</p>
+            <button id="startCalibrationTrial" type="submit" disabled>Подать пробный объём</button>
+        </form>
+        <section id="calibrationTrial" hidden>
+            <p id="calibrationDispense"></p>
+            <p id="calibrationStatus" class="feedback" role="status"></p>
+            <form id="calibrationMeasureForm" class="calibration-form" novalidate hidden>
+                <label for="calibrationMeasured">Измеренный объём, мкл</label>
+                <input id="calibrationMeasured" type="text" inputmode="decimal" autocomplete="off"
+                       aria-describedby="calibrationComparison" required>
+                <p id="calibrationComparison" class="muted"></p>
+                <button id="applyCalibrationTrial" type="submit" disabled>Применить калибровку</button>
+            </form>
+            <div class="settings-actions">
+                <button id="resetCalibrationTrial" type="button" class="secondary-button"
+                        title="Начатая подача продолжится после сброса замера." disabled>Сбросить замер</button>
+            </div>
+        </section>
+        <p id="calibrationFeedback" class="feedback error" role="status"></p>
+    </dialog>
 </body>
 </html>

@@ -276,6 +276,57 @@ main {
     margin-top: 12px;
 }
 
+.calibration-control {
+    display: grid;
+    gap: 6px;
+    justify-items: start;
+}
+
+#calibrationHint:empty {
+    display: none;
+}
+
+#calibrationDialog {
+    width: min(450px, calc(100% - 32px));
+    max-height: calc(100% - 32px);
+    padding: 22px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--surface);
+    color: inherit;
+}
+
+#calibrationDialog::backdrop {
+    background: rgb(24 37 46 / 48%);
+}
+
+.calibration-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 18px;
+}
+
+#calibrationPump {
+    margin-top: 4px;
+    overflow-wrap: anywhere;
+}
+
+.calibration-form {
+    display: grid;
+    gap: 8px;
+}
+
+.calibration-form button {
+    justify-self: start;
+    margin-top: 6px;
+}
+
+#calibrationMeasureForm {
+    margin-top: 14px;
+}
+
 fieldset {
     display: grid;
     gap: 8px;

@@ -12,10 +12,15 @@
 
 // Manages the Master connection, pump settings, and rotation requests on behalf of the UI.
 class PumpMonitor final {
+    static constexpr int fullStepsPerTurn = 200;  // Full steps per turn on the pump motor.
+    static constexpr int microstepMultiplier = 16;  // Microsteps per full step in the firmware.
+
 public:
     // The current AVR firmware counts pulses in a 16-bit unsigned integer.
     // With 200 full steps/revolution and 16 microsteps, 20 turns fit.
     static constexpr int maxTurns = 20;
+    // Motor resolution used to convert a volume to a whole number of pulses.
+    static constexpr int microstepsPerTurn = fullStepsPerTurn * microstepMultiplier;
     // Inclusive range of pump IDs accepted by Monitor.
     static constexpr int minPumpId = 101;
     static constexpr int maxPumpId = 255;
@@ -46,7 +51,17 @@ public:
         std::string message;  // Status text shown in the UI.
     };
 
-    // A copy of the connection, known pumps, and latest rotation feedback for the UI.
+    // Holds one calibration trial until the operator applies or discards it.
+    struct CalibrationTrial final {
+        std::uint8_t pumpId;  // Pump used for the trial.
+        double targetVolume;  // Requested volume in microliters.
+        double initialVolumePerTurn;  // Applied setting used to calculate the trial rotation.
+        double turns;  // Commanded turns after rounding to whole microsteps.
+        bool pending;  // True until command dispatch finishes.
+        std::string error;  // Reason the trial cannot be used, if any.
+    };
+
+    // A copy of the connection, known pumps, and active operations for the UI.
     struct Snapshot final {
         Connection connection = Connection::Disconnected;  // Current connection or search phase.
         std::string port;  // Selected or connected Master port.
@@ -55,6 +70,7 @@ public:
         std::string connectionError;  // Most recent connection error, if any.
         std::map<std::uint8_t, Pump> pumps;  // Known pumps indexed by ID.
         std::optional<RotationResult> rotation;  // Latest rotation dispatch status, if available.
+        std::optional<CalibrationTrial> calibration;  // Current trial, including any dispatch error.
     };
 
     // Starts the UART worker and registers a callback for state changes.
@@ -75,6 +91,15 @@ public:
     // Queues whole turns or converts a volume using the pump's current settings.
     // An empty result means the request was accepted.
     std::string rotate(int pumpId, double amount, RotationDirection direction, RotationUnit unit = RotationUnit::Turns);
+
+    // Queues a forward rotation using the pump's current volume setting.
+    std::string startCalibration(int pumpId, double targetVolume);
+
+    // Calculates and applies microliters per turn from the operator's measurement.
+    std::string applyCalibration(int pumpId, double measuredVolume);
+
+    // Discards the trial once dispatch has finished.
+    std::string resetCalibration(int pumpId);
 
     // Adds a new pump with an offline status and empty settings.
     std::string addPump(int pumpId);
@@ -103,6 +128,7 @@ private:
         std::uint8_t pumpId;  // Address of the target pump.
         float degrees;  // Angle sent to Master.
         RotationDirection direction;  // Direction of motor rotation.
+        bool calibration;  // Whether dispatch also updates the active trial.
     };
 
     // Waits for connection requests and runs registered UART sessions.
@@ -122,6 +148,12 @@ private:
 
     // Rechecks a queued rotation, sends its UART frames, and publishes the dispatch result.
     void sendPendingRotation();
+
+    // Validates and queues a manual rotation or a calibration trial.
+    std::string queueRotation(int pumpId, double amount, RotationDirection direction, RotationUnit unit, bool calibration);
+
+    // Checks for an active, usable trial on the given pump. Call with the mutex held.
+    bool hasActiveCalibration(int pumpId) const;
 
     // Returns why a rotation cannot be sent based on connection, pump status, and direction.
     std::string rotationError(const RotationRequest& request) const;

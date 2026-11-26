@@ -14,11 +14,8 @@ constexpr std::uint8_t masterAddress = UART_MASTER_ADDRESS;
 constexpr auto masterPollInterval = std::chrono::milliseconds{UART_POLL_INTERVAL_MS};
 constexpr unsigned maxToleratedMasterMisses = 2;
 constexpr std::uint8_t manualRpm = 6;
-// Match the motor and microstep configuration in the pump firmware.
-constexpr int fullStepsPerTurn = 200;
-constexpr int microstepMultiplier = 16;
-constexpr int microstepsPerTurn = fullStepsPerTurn * microstepMultiplier;
 constexpr int degreesPerTurn = 360;
+constexpr auto calibrationInProgress = "Сначала завершите или сбросьте калибровку этого насоса.";
 
 bool validPumpId(int id) {
     return id >= PumpMonitor::minPumpId && id <= PumpMonitor::maxPumpId;
@@ -48,7 +45,8 @@ PumpMonitor::PumpMonitor(std::string defaultPort, std::uint32_t baudRate,
                          std::function<void()> changed)
     : baudRate_(baudRate),
       changed_(std::move(changed)),
-      state_{.port = std::move(defaultPort), .searchPort = {}, .connectionError = {}, .pumps = {}, .rotation = {}},
+      state_{.port = std::move(defaultPort), .searchPort = {}, .connectionError = {},
+             .pumps = {}, .rotation = {}, .calibration = {}},
       worker_([this](std::stop_token stop) { run(stop); }) {}
 
 void PumpMonitor::stop() {
@@ -134,6 +132,9 @@ std::string PumpMonitor::updatePumpSettings(int pumpId, PumpSettings settings) {
         if (pump == state_.pumps.end()) {
             return "Насос с таким номером отсутствует в списке.";
         }
+        if (hasActiveCalibration(pumpId) && settings.volumePerTurnMicroliters != state_.calibration->initialVolumePerTurn) {
+            return calibrationInProgress;
+        }
         pump->second.settings = std::move(settings);
     }
     changed_();
@@ -148,6 +149,12 @@ std::string PumpMonitor::importPumpSettings(std::map<int, PumpSettings> settings
     }
     {
         std::lock_guard lock(mutex_);
+        if (const auto& trial = state_.calibration; trial && trial->error.empty()) {
+            const auto imported = settings.find(trial->pumpId);
+            if (imported != settings.end() && imported->second.volumePerTurnMicroliters != trial->initialVolumePerTurn) {
+                return calibrationInProgress;
+            }
+        }
         for (auto& [id, pumpSettings] : settings) {
             state_.pumps[static_cast<std::uint8_t>(id)].settings = std::move(pumpSettings);
         }
@@ -157,6 +164,56 @@ std::string PumpMonitor::importPumpSettings(std::map<int, PumpSettings> settings
 }
 
 std::string PumpMonitor::rotate(int pumpId, double amount, RotationDirection direction, RotationUnit unit) {
+    return queueRotation(pumpId, amount, direction, unit, false);
+}
+
+std::string PumpMonitor::startCalibration(int pumpId, double targetVolume) {
+    return queueRotation(pumpId, targetVolume, FORWARD, RotationUnit::Microliters, true);
+}
+
+std::string PumpMonitor::applyCalibration(int pumpId, double measuredVolume) {
+    if (!std::isfinite(measuredVolume) || measuredVolume <= 0) {
+        return "Введите измеренный объём больше нуля.";
+    }
+    {
+        std::lock_guard lock(mutex_);
+        if (!hasActiveCalibration(pumpId) || state_.calibration->pending) {
+            return "Для этого насоса нет пробы, которую можно применить.";
+        }
+        const auto& trial = *state_.calibration;
+        const double volumePerTurn = measuredVolume / trial.turns;
+        if (!std::isfinite(volumePerTurn) || volumePerTurn <= 0) {
+            return "По этому замеру невозможно рассчитать объём за 1 оборот.";
+        }
+        state_.pumps.at(trial.pumpId).settings.volumePerTurnMicroliters = volumePerTurn;
+        state_.calibration.reset();
+    }
+    changed_();
+    return {};
+}
+
+std::string PumpMonitor::resetCalibration(int pumpId) {
+    {
+        std::lock_guard lock(mutex_);
+        if (!state_.calibration || state_.calibration->pumpId != pumpId) {
+            return "Для этого насоса нет пробы калибровки.";
+        }
+        if (state_.calibration->pending) {
+            return "Дождитесь отправки команды пробной подачи.";
+        }
+        state_.calibration.reset();
+    }
+    changed_();
+    return {};
+}
+
+bool PumpMonitor::hasActiveCalibration(int pumpId) const {
+    const auto& trial = state_.calibration;
+    return trial && trial->pumpId == pumpId && trial->error.empty();
+}
+
+std::string PumpMonitor::queueRotation(int pumpId, double amount, RotationDirection direction, RotationUnit unit,
+                                      bool calibration) {
     if (!validPumpId(pumpId) || (direction != FORWARD && direction != REVERSE)) {
         return "Проверьте насос и направление вращения.";
     }
@@ -167,9 +224,15 @@ std::string PumpMonitor::rotate(int pumpId, double amount, RotationDirection dir
         return "Введите от 1 до " + std::to_string(maxTurns) + " целых оборотов.";
     }
 
-    RotationRequest request{static_cast<std::uint8_t>(pumpId), 0.0f, direction};
+    RotationRequest request{static_cast<std::uint8_t>(pumpId), 0.0f, direction, calibration};
     {
         std::lock_guard lock(mutex_);
+        if (calibration && state_.calibration) {
+            return "Сначала завершите или сбросьте текущую калибровку.";
+        }
+        if (hasActiveCalibration(pumpId)) {
+            return calibrationInProgress;
+        }
         if (const auto error = rotationError(request); !error.empty()) {
             return error;
         }
@@ -194,6 +257,11 @@ std::string PumpMonitor::rotate(int pumpId, double amount, RotationDirection dir
             // The AVR truncates the pulse count, so compensate if its float calculation falls below the target.
             if (request.degrees * fullStepsPerTurn * microstepMultiplier / degreesPerTurn < microsteps) {
                 request.degrees = std::nextafter(request.degrees, std::numeric_limits<float>::infinity());
+            }
+            if (calibration) {
+                state_.calibration = CalibrationTrial{
+                    request.pumpId, amount, *volumePerTurn, microsteps / microstepsPerTurn, true, {}
+                };
             }
         } else {
             request.degrees = static_cast<float>(amount * degreesPerTurn);
@@ -291,6 +359,10 @@ void PumpMonitor::run(std::stop_token stop) {
             }
             state_.rotation.reset();
             rotationRequest_.reset();
+            if (auto& trial = state_.calibration; trial && trial->error.empty()) {
+                trial->pending = false;
+                trial->error = "Во время пробы потеряна связь с Master.";
+            }
         }
         changed_();
     }
@@ -443,6 +515,13 @@ void PumpMonitor::handleStatus(const UART_Message& message) {
             return;
         }
         pump->second.status = status;
+        if (hasActiveCalibration(message.device_id) && !state_.calibration->pending) {
+            if (status == PUMP_DISABLE) {
+                state_.calibration->error = "Во время пробы потеряна связь с насосом.";
+            } else if (status == PUMP_BLOCKED_FORWARD) {
+                state_.calibration->error = "Во время пробы сработал передний концевик.";
+            }
+        }
     }
     changed_();
 }
@@ -469,6 +548,10 @@ void PumpMonitor::sendPendingRotation() {
 
     {
         std::lock_guard lock(mutex_);
+        if (request.calibration) {
+            state_.calibration->pending = false;
+            state_.calibration->error = error;
+        }
         state_.rotation = RotationResult{
             request.pumpId, false, !error.empty(),
             error.empty() ? "Команда отправлена." : std::move(error)

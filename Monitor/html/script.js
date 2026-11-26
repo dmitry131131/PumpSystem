@@ -1,6 +1,7 @@
 "use strict";
 
 const byId = (id) => document.getElementById(id);
+const formatDecimal = (value) => String(value).replace(".", ",");
 
 const connectForm = byId("connectForm");
 const portInput = byId("portNameInput");
@@ -35,6 +36,16 @@ const loadConfigurationButton = byId("loadConfigurationButton");
 const saveConfigurationButton = byId("saveConfigurationButton");
 const configurationFile = byId("configurationFile");
 const settingsFeedback = byId("settingsFeedback");
+const openCalibrationButton = byId("openCalibration");
+const calibrationDialog = byId("calibrationDialog");
+const calibrationStartForm = byId("calibrationStartForm");
+const calibrationMeasureForm = byId("calibrationMeasureForm");
+const calibrationTarget = byId("calibrationTarget");
+const calibrationMeasured = byId("calibrationMeasured");
+const startCalibrationButton = byId("startCalibrationTrial");
+const applyCalibrationButton = byId("applyCalibrationTrial");
+const resetCalibrationButton = byId("resetCalibrationTrial");
+const calibrationFeedback = byId("calibrationFeedback");
 
 const statusLabels = {
     offline: "Нет связи",
@@ -52,6 +63,8 @@ let settingsId = null;
 let connectionRequest = null;
 let submittingRotation = false;
 let settingsBusy = false;
+let calibrationBusy = false;
+let calibrationPumpId = null;
 
 const tabs = Array.from(document.querySelectorAll('[role="tab"]'));
 
@@ -162,7 +175,9 @@ function renderSelection() {
 
     selectedTitle.textContent = pumpLabel(pump);
     renderStatus(selectedStatus, pump.status);
-    rotationFields.disabled = pump.status === "offline" || submittingRotation || Boolean(state.rotation?.pending);
+    const calibrating = state.calibration?.pumpId === pump.id && !state.calibration.error;
+    rotationFields.disabled = pump.status === "offline" || submittingRotation || Boolean(state.rotation?.pending)
+        || calibrating;
 
     const byVolume = rotationUnit.value === "volume";
     const volumePerTurn = pump.volumePerTurnMicroliters;
@@ -171,7 +186,7 @@ function renderSelection() {
     volumeInput.disabled = !byVolume || !volumePerTurn;
     rotateButton.disabled = byVolume && !volumePerTurn;
     volumeHint.textContent = volumePerTurn
-        ? `${String(volumePerTurn).replace(".", ",")} мкл за оборот`
+        ? `${formatDecimal(volumePerTurn)} мкл за оборот`
         : "Задайте «Объём за 1 оборот» во вкладке «Настройки насосов».";
 
     const forward = directionSelect.options[0];
@@ -185,7 +200,9 @@ function renderSelection() {
         directionSelect.value = "forward";
     }
 
-    if (state.rotation?.pumpId === pump.id) {
+    if (calibrating) {
+        showRotationFeedback("Завершите или сбросьте калибровку во вкладке «Настройки насосов».");
+    } else if (state.rotation?.pumpId === pump.id) {
         showRotationFeedback(state.rotation.message, state.rotation.error);
     }
 }
@@ -202,7 +219,9 @@ window.renderMonitor = function (snapshot) {
         portInput.value = snapshot.port;
     }
 
-    if (state?.connection === "connected" && snapshot.connection === "disconnected") {
+    if ((state?.connection === "connected" && snapshot.connection === "disconnected")
+        || (state?.calibration?.pumpId === selectedId && !state.calibration.error
+            && (snapshot.calibration?.pumpId !== selectedId || snapshot.calibration.error))) {
         showRotationFeedback("");
     }
     state = snapshot;
@@ -245,6 +264,28 @@ function settingsInputValues(pump) {
     return { name: pump.name, volume: pump.volumePerTurnMicroliters?.toString() ?? "" };
 }
 
+function calibrationUnavailable(pump) {
+    if (state.calibration) {
+        return `Завершите или сбросьте калибровку насоса №${state.calibration.pumpId}.`;
+    }
+    if (state.connection !== "connected" || pump.status === "offline") {
+        return "Калибровка доступна, когда насос на связи.";
+    }
+    if (pump.status === "forwardLocked") {
+        return "Пробную подачу блокирует передний концевик.";
+    }
+    if (!pump.volumePerTurnMicroliters) {
+        return "Сначала задайте и примените объём за оборот.";
+    }
+    if (settingsDrafts.has(pump.id)) {
+        return "Сначала примените или отмените правки.";
+    }
+    if (state.rotation?.pending) {
+        return "Дождитесь отправки предыдущей команды.";
+    }
+    return "";
+}
+
 function renderSettings() {
     const disabled = !state || settingsBusy;
     for (const control of [pumpIdInput, byId("addPumpButton"), settingsFields,
@@ -266,15 +307,150 @@ function renderSettings() {
     renderStatus(byId("settingsPumpStatus"), pump.status);
     const draft = settingsDrafts.get(pump.id);
     const { name, volume } = draft ?? settingsInputValues(pump);
+    const trial = state.calibration?.pumpId === pump.id ? state.calibration : null;
+    const calibrating = Boolean(trial && !trial.error);
+    pumpNameInput.disabled = pumpVolumeInput.disabled = calibrating;
     if (pumpNameInput.value !== name) {
         pumpNameInput.value = name;
     }
     if (pumpVolumeInput.value !== volume) {
         pumpVolumeInput.value = volume;
     }
-    applySettingsButton.disabled = !draft;
+    applySettingsButton.disabled = !draft || calibrating;
     resetSettingsButton.hidden = !draft;
+
+    const unavailable = trial ? "" : calibrationUnavailable(pump);
+    openCalibrationButton.disabled = calibrationBusy || Boolean(unavailable);
+    openCalibrationButton.textContent = trial ? "Продолжить калибровку" : "Калибровать…";
+    byId("calibrationHint").textContent = unavailable;
+    renderCalibration();
 }
+
+function renderCalibration() {
+    if (!calibrationDialog.open) {
+        return;
+    }
+    const pump = state.pumps.find((item) => item.id === calibrationPumpId);
+    const trial = state.calibration?.pumpId === pump.id ? state.calibration : null;
+    byId("calibrationPump").textContent = pumpLabel(pump);
+    calibrationStartForm.hidden = Boolean(trial);
+    byId("calibrationTrial").hidden = !trial;
+
+    if (trial) {
+        const canMeasure = !trial.pending && !trial.error;
+        byId("calibrationDispense").textContent =
+            `Пробный объём ${formatDecimal(trial.targetVolume)} мкл · ${formatDecimal(trial.turns)} об.`;
+        const status = byId("calibrationStatus");
+        status.textContent = trial.error || (trial.pending
+            ? "Отправка команды…"
+            : "Команда отправлена. Дождитесь остановки насоса и измерьте вышедший объём.");
+        status.classList.toggle("error", Boolean(trial.error));
+        calibrationMeasureForm.hidden = !canMeasure;
+        calibrationMeasured.disabled = calibrationBusy;
+        resetCalibrationButton.disabled = calibrationBusy || trial.pending;
+
+        const corrected = parsePositiveDecimal(calibrationMeasured.value) / trial.turns;
+        const valid = Number.isFinite(corrected) && corrected > 0;
+        applyCalibrationButton.disabled = calibrationBusy || !canMeasure || !valid;
+        byId("calibrationComparison").textContent = valid
+            ? `${formatDecimal(trial.initialVolumePerTurn)} → ${formatDecimal(corrected)} мкл за оборот`
+            : "Введите измеренный объём больше нуля.";
+        return;
+    }
+
+    const current = pump.volumePerTurnMicroliters;
+    byId("calibrationCurrent").textContent = current ? `Сейчас ${formatDecimal(current)} мкл за оборот.` : "";
+    const amount = parsePositiveDecimal(calibrationTarget.value);
+    const steps = Math.round(amount / current * state.microstepsPerTurn);
+    const valid = steps >= 1 && steps <= state.maxTurns * state.microstepsPerTurn;
+    const limit = `Максимум ${state.maxTurns} оборотов за пробу.`;
+    const unavailable = calibrationUnavailable(pump);
+    let preview = limit;
+    if (valid) {
+        preview = `${formatDecimal(steps / state.microstepsPerTurn)} об. · ${limit}`;
+    } else if (steps === 0) {
+        preview = `Объём слишком мал для одного микрошага. ${limit}`;
+    } else if (steps > 0) {
+        preview = `Для этого объёма нужно больше ${state.maxTurns} оборотов.`;
+    } else if (calibrationTarget.value.trim()) {
+        preview = `Введите объём больше нуля. ${limit}`;
+    }
+    byId("calibrationTurns").textContent = unavailable || preview;
+    calibrationTarget.disabled = calibrationBusy;
+    startCalibrationButton.disabled = calibrationBusy || Boolean(unavailable) || !valid;
+}
+
+openCalibrationButton.addEventListener("click", () => {
+    if (openCalibrationButton.disabled) {
+        return;
+    }
+    calibrationPumpId = settingsId;
+    const trial = state.calibration;
+    if (!trial) {
+        calibrationTarget.value = "";
+        calibrationMeasured.value = "";
+        calibrationFeedback.textContent = "";
+    }
+    calibrationDialog.showModal();
+    renderCalibration();
+    if (!trial) {
+        calibrationTarget.focus();
+    } else if (!trial.pending && !trial.error) {
+        calibrationMeasured.focus();
+    }
+});
+
+byId("closeCalibration").addEventListener("click", () => calibrationDialog.close());
+
+for (const input of [calibrationTarget, calibrationMeasured]) {
+    input.addEventListener("input", () => {
+        calibrationFeedback.textContent = "";
+        renderCalibration();
+    });
+}
+
+async function runCalibrationAction(action, successMessage) {
+    calibrationBusy = true;
+    calibrationFeedback.textContent = "";
+    renderSettings();
+    try {
+        const { error } = await action();
+        if (error) {
+            calibrationFeedback.textContent = error;
+        } else if (successMessage) {
+            calibrationDialog.close();
+            showSettingsFeedback(successMessage);
+        }
+    } catch {
+        calibrationFeedback.textContent = "Не удалось выполнить операцию калибровки.";
+    } finally {
+        calibrationBusy = false;
+        renderSettings();
+    }
+}
+
+calibrationStartForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    if (!startCalibrationButton.disabled) {
+        const volume = parsePositiveDecimal(calibrationTarget.value);
+        runCalibrationAction(() => window.startCalibration(calibrationPumpId, volume));
+    }
+});
+
+calibrationMeasureForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    if (!applyCalibrationButton.disabled) {
+        const volume = parsePositiveDecimal(calibrationMeasured.value);
+        runCalibrationAction(() => window.applyCalibration(calibrationPumpId, volume),
+            `Калибровка насоса №${calibrationPumpId} применена.`);
+    }
+});
+
+resetCalibrationButton.addEventListener("click", () => {
+    if (!resetCalibrationButton.disabled) {
+        runCalibrationAction(() => window.resetCalibration(calibrationPumpId), "Замер сброшен.");
+    }
+});
 
 async function runSettingsAction(action, successMessage, onSuccess) {
     if (!state || settingsBusy) {
@@ -321,8 +497,7 @@ settingsForm.addEventListener("input", () => {
         settingsDrafts.set(settingsId, draft);
     }
     showSettingsFeedback("");
-    applySettingsButton.disabled = !settingsDrafts.has(settingsId);
-    resetSettingsButton.hidden = applySettingsButton.disabled;
+    renderSettings();
 });
 
 resetSettingsButton.addEventListener("click", () => {

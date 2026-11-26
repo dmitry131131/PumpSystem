@@ -114,10 +114,20 @@ json snapshotJson(const PumpMonitor::Snapshot& state) {
         };
     }
 
+    json calibration = nullptr;
+    if (const auto& trial = state.calibration) {
+        calibration = {
+            {"pumpId", trial->pumpId}, {"targetVolume", trial->targetVolume},
+            {"initialVolumePerTurn", trial->initialVolumePerTurn}, {"turns", trial->turns},
+            {"pending", trial->pending}, {"error", trial->error}
+        };
+    }
+
     return {{"connection", connection}, {"port", state.port}, {"searchPort", state.searchPort},
             {"connectionLost", state.connectionLost},
             {"connectionError", state.connectionError}, {"pumps", std::move(pumps)},
             {"rotation", std::move(rotation)}, {"maxTurns", PumpMonitor::maxTurns},
+            {"calibration", std::move(calibration)}, {"microstepsPerTurn", PumpMonitor::microstepsPerTurn},
             {"minPumpId", PumpMonitor::minPumpId}, {"maxPumpId", PumpMonitor::maxPumpId}};
 }
 }
@@ -192,6 +202,48 @@ void GUI::registerCallbacks() {
         } catch (const json::exception&) {
             return reply("Некорректные параметры вращения.");
         }
+    });
+    window_.bind("startCalibration", [this, active](const std::string& args) {
+        if (active.expired()) {
+            return std::string{};
+        }
+        try {
+            const auto params = json::parse(args);
+            const auto id = pumpIdFromJson(params.at(0));
+            const auto& volume = params.at(1);
+            if (id && volume.is_number()) {
+                return reply(monitor_.startCalibration(*id, volume.get<double>()));
+            }
+        } catch (const json::exception&) {
+        }
+        return reply("Проверьте номер насоса и пробный объём.");
+    });
+    window_.bind("applyCalibration", [this, active](const std::string& args) {
+        if (active.expired()) {
+            return std::string{};
+        }
+        try {
+            const auto params = json::parse(args);
+            const auto id = pumpIdFromJson(params.at(0));
+            const auto& volume = params.at(1);
+            if (id && volume.is_number()) {
+                return reply(monitor_.applyCalibration(*id, volume.get<double>()));
+            }
+        } catch (const json::exception&) {
+        }
+        return reply("Проверьте номер насоса и измеренный объём.");
+    });
+    window_.bind("resetCalibration", [this, active](const std::string& args) {
+        if (active.expired()) {
+            return std::string{};
+        }
+        try {
+            if (const auto id = pumpIdFromJson(json::parse(args).at(0))) {
+                return reply(monitor_.resetCalibration(*id));
+            }
+        } catch (const json::exception&) {
+        }
+        return reply("Проверьте номер насоса.");
     });
     window_.bind("addPump", [this, active](const std::string& args) {
         if (active.expired()) {
